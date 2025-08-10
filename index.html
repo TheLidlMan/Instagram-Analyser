@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Data Analyzer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="title">
+                    <span class="gradient-text">Instagram</span> Data Analyzer
+                </h1>
+                <p class="subtitle">Discover insights from your Instagram messages</p>
+            </div>
+        </header>
+
+        <!-- Upload Section -->
+        <section class="upload-section" id="uploadSection">
+            <div class="upload-container">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📱</div>
+                    <h3>Upload Your Instagram Data</h3>
+                    <p>Drag and drop your Instagram export file here, or click to browse</p>
+                    <input type="file" id="fileInput" accept=".json" hidden>
+                    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                        Choose File
+                    </button>
+                </div>
+                <div class="upload-instructions">
+                    <h4>How to export your Instagram data:</h4>
+                    <ol>
+                        <li>Go to Instagram Settings & Privacy</li>
+                        <li>Scroll down to "Data and privacy"</li>
+                        <li>Click "Download your information"</li>
+                        <li>Select "Messages" and request download</li>
+                        <li>Upload the messages.json file here</li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading Section -->
+        <section class="loading-section" id="loadingSection" style="display: none;">
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <h3>Analyzing your data...</h3>
+                <p>This may take a few moments</p>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section class="results-section" id="resultsSection" style="display: none;">
+            <!-- Overview Cards -->
+            <div class="overview-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">💬</div>
+                    <div class="stat-content">
+                        <h3 id="totalMessages">0</h3>
+                        <p>Total Messages</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-content">
+                        <h3 id="totalConversations">0</h3>
+                        <p>Conversations</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">😊</div>
+                    <div class="stat-content">
+                        <h3 id="totalEmojis">0</h3>
+                        <p>Emojis Used</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📅</div>
+                    <div class="stat-content">
+                        <h3 id="dateRange">-</h3>
+                        <p>Date Range</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Grid -->
+            <div class="charts-grid">
+                <!-- Most Active Conversations -->
+                <div class="chart-container">
+                    <h3>Most Active Conversations</h3>
+                    <canvas id="conversationsChart"></canvas>
+                </div>
+
+                <!-- Emoji Usage -->
+                <div class="chart-container">
+                    <h3>Most Used Emojis</h3>
+                    <canvas id="emojisChart"></canvas>
+                </div>
+
+                <!-- Message Activity Over Time -->
+                <div class="chart-container full-width">
+                    <h3>Message Activity Over Time</h3>
+                    <canvas id="activityChart"></canvas>
+                </div>
+
+                <!-- Time of Day Analysis -->
+                <div class="chart-container">
+                    <h3>Message Time Distribution</h3>
+                    <canvas id="timeChart"></canvas>
+                </div>
+
+                <!-- Word Frequency -->
+                <div class="chart-container">
+                    <h3>Most Used Words</h3>
+                    <canvas id="wordsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Detailed Stats -->
+            <div class="detailed-stats">
+                <h3>Detailed Statistics</h3>
+                <div class="stats-grid" id="detailedStats">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
