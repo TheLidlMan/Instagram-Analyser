@@ -1,0 +1,28 @@
+{
+  "name": "instagram-dm-analyzer",
+  "version": "1.0.0-alpha.1",
+  "description": "A client-side web application for analyzing Instagram DM data exports",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "serve": "npx http-server -p 8000"
+  },
+  "keywords": [
+    "instagram",
+    "dm",
+    "analytics",
+    "data-analysis",
+    "privacy",
+    "client-side"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/Instagram-Analyser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/Instagram-Analyser/issues"
+  },
+  "homepage": "https://github.com/yourusername/Instagram-Analyser#readme"
+}

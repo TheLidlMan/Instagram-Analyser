@@ -1,6 +1,33 @@
-# OS
+# OS generated files
 .DS_Store
-# Node/Tooling (if added later)
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node modules (if you add any build tools later)
 node_modules/
-dist/
-example_instgram/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Instagram data exports (keep private)
+instagram-*
+messages/
+saved/
+comments/
+your_topics/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
