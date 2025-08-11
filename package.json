@@ -1,6 +1,6 @@
 {
   "name": "instagram-dm-analyzer",
-  "version": "1.0.0-alpha.1",
+  "version": "1.0.0-alpha.2",
   "description": "A client-side web application for analyzing Instagram DM data exports",
   "main": "index.html",
   "scripts": {
