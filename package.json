@@ -15,14 +15,14 @@
     "privacy",
     "client-side"
   ],
-  "author": "Your Name",
+  "author": "TheLidlMan",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/Instagram-Analyser.git"
+    "url": "https://github.com/thelidlman/Instagram-Analyser.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/Instagram-Analyser/issues"
+    "url": "https://github.com/thelidlman/Instagram-Analyser/issues"
   },
-  "homepage": "https://github.com/yourusername/Instagram-Analyser#readme"
+  "homepage": "https://github.com/thelidlman/Instagram-Analyser#readme"
 }
