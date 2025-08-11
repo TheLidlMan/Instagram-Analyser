@@ -121,6 +121,14 @@
               <div class="text-xs text-slate-700 dark:text-slate-300">Range (days)</div>
               <div class="text-xl font-semibold text-slate-900 dark:text-slate-200" x-text="overview.rangeDays.toLocaleString()"></div>
             </div>
+            <div class="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 rounded-xl p-3">
+              <div class="text-xs text-indigo-700 dark:text-indigo-300">Current streak</div>
+              <div class="text-xl font-semibold text-indigo-900 dark:text-indigo-200" x-text="stats.streakCurrent + ' days'"></div>
+            </div>
+            <div class="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 rounded-xl p-3">
+              <div class="text-xs text-indigo-700 dark:text-indigo-300">Longest streak</div>
+              <div class="text-xl font-semibold text-indigo-900 dark:text-indigo-200" x-text="stats.streakLongest + ' days'"></div>
+            </div>
           </div>
 
           <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -147,6 +155,53 @@
             <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Most Active Threads</h3>
             <div class="chart-wrap"><canvas id="chartConversationsFull"></canvas></div>
           </div>
+          <template x-if="selectedThreadKey !== 'ALL'">
+            <div class="mt-6 bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-3">Participants balance</h3>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" x-data="{ parts: (()=>{
+                  const t = threads.find(t => (t.thread_path || `title:${t.title}`) === selectedThreadKey) || { messages:[], participants:[] };
+                  const counts = {};
+                  for (const m of t.messages) counts[m.sender_name] = (counts[m.sender_name]||0) + 1;
+                  const arr = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+                  const total = arr.reduce((s,x)=>s+x[1],0);
+                  return { arr, total };
+                })() }">
+                <template x-for="p in parts.arr" :key="p[0]">
+                  <div class="p-3 rounded-lg border border-gray-200 dark:border-slate-700">
+                    <div class="text-sm text-gray-600 dark:text-slate-300" x-text="p[0]"></div>
+                    <div class="flex items-baseline gap-2">
+                      <div class="text-xl font-semibold text-gray-900 dark:text-gray-100" x-text="p[1].toLocaleString()"></div>
+                      <div class="text-sm text-gray-500 dark:text-slate-400" x-text="Math.round((p[1]/parts.total)*100) + '%' "></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="selectedThreadKey !== 'ALL'">
+            <div class="mt-4 bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-3">“good boy” counter</h3>
+              <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3" x-data="{ rows: (()=>{
+                const t = threads.find(t => (t.thread_path || `title:${t.title}`) === selectedThreadKey) || { messages:[] };
+                const map = {};
+                for (const m of t.messages) {
+                  if (!m.content || !m.sender_name) continue;
+                  const matches = (m.content.toLowerCase().match(/\bgood\s+boy\b/g) || []).length;
+                  if (matches) map[m.sender_name] = (map[m.sender_name]||0) + matches;
+                }
+                return Object.entries(map).sort((a,b)=>b[1]-a[1]);
+              })() }">
+                <template x-for="row in rows" :key="row[0]">
+                  <div class="p-3 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
+                    <div class="text-sm text-gray-600 dark:text-slate-300" x-text="row[0]"></div>
+                    <div class="text-xs text-gray-500 dark:text-slate-400">Occurrences</div>
+                    <div class="text-lg font-semibold text-gray-900 dark:text-gray-100" x-text="row[1].toLocaleString()"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- Emojis (from text) -->
@@ -167,6 +222,24 @@
 
         <!-- Activity -->
         <div x-show="activeTab==='activity'" x-cloak>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-600 dark:text-gray-300">Avg per day</div>
+              <div class="text-2xl font-semibold text-gray-900 dark:text-gray-100" x-text="stats.avgPerDay.toFixed(2)"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-600 dark:text-gray-300">Record in a day</div>
+              <div class="text-xl text-gray-900 dark:text-gray-100" x-text="stats.maxPerDayCount + ' on ' + stats.maxPerDayDate"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-600 dark:text-gray-300">Active days</div>
+              <div class="text-xl text-gray-900 dark:text-gray-100" x-text="stats.activeDaysPct + '% (' + stats.uniqueActiveDays + '/' + overview.rangeDays + ')' "></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-600 dark:text-gray-300">Trend (30d)</div>
+              <div class="text-xl text-gray-900 dark:text-gray-100" x-text="(stats.trend.direction==='up'?'📈 ':stats.trend.direction==='down'?'📉 ':'⏸️ ') + stats.trend.deltaPct + '%' "></div>
+            </div>
+          </div>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
               <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Daily Message Counts</h3>
@@ -184,6 +257,18 @@
           <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
             <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Top Words</h3>
             <div class="chart-wrap"><canvas id="chartWords"></canvas></div>
+          </div>
+          <div class="mt-6 bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-3">Per-participant averages</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <template x-for="row in charts.bySenderAvgLen" :key="row[0]">
+                <div class="p-3 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
+                  <div class="text-sm text-gray-600 dark:text-slate-300" x-text="row[0]"></div>
+                  <div class="text-xs text-gray-500 dark:text-slate-400">Avg msg length</div>
+                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100" x-text="row[1] + ' chars'"></div>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
 
@@ -250,6 +335,14 @@
                   <dt class="text-gray-600 dark:text-slate-400">Top sender</dt>
                   <dd class="font-medium" x-text="stats.topSender"></dd>
                 </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Words total</dt>
+                  <dd class="font-medium" x-text="stats.wordsTotal.toLocaleString()"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Top media sender</dt>
+                  <dd class="font-medium" x-text="stats.topMediaSender"></dd>
+                </div>
               </dl>
             </div>
             <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
@@ -259,6 +352,18 @@
                 <li>Charts update to match the selected conversation.</li>
                 <li>Toggle the theme for a dark UI and recolored charts.</li>
               </ul>
+            </div>
+          </div>
+          <div class="mt-6 bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-3">Per-participant averages</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <template x-for="row in charts.bySenderAvgLen" :key="row[0]">
+                <div class="p-3 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
+                  <div class="text-sm text-gray-600 dark:text-slate-300" x-text="row[0]"></div>
+                  <div class="text-xs text-gray-500 dark:text-slate-400">Avg msg length</div>
+                  <div class="text-lg font-semibold text-gray-900 dark:text-gray-100" x-text="row[1] + ' chars'"></div>
+                </div>
+              </template>
             </div>
           </div>
         </div>
@@ -335,10 +440,16 @@
         </div>
 
         <!-- Interests - New Tab Content -->
-    <div x-show="activeTab==='interests'" class="space-y-6" x-cloak>
+        <div x-show="activeTab==='interests'" class="space-y-6" x-cloak>
           <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
-            <div class="text-sm text-gray-600 dark:text-gray-300 mb-2">Top topics</div>
-      <div class="chart-wrap"><canvas id="chartTopicsTop"></canvas></div>
+            <div class="text-sm text-gray-600 dark:text-gray-300 mb-3">Your topics</div>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="(label, i) in extrasAnalytics?.topics.top.labels" :key="label">
+                <span :style="`font-size:${Math.min(28, 12 + (extrasAnalytics.topics.top.values[i]||1))}px`" class="px-2 py-1 rounded-lg text-gray-800 dark:text-gray-100"
+                      :class="['bg-indigo-100 dark:bg-indigo-900/40','bg-rose-100 dark:bg-rose-900/40','bg-amber-100 dark:bg-amber-900/40','bg-emerald-100 dark:bg-emerald-900/40','bg-sky-100 dark:bg-sky-900/40'][Math.floor(Math.random()*5)]"
+                      x-text="label"></span>
+              </template>
+            </div>
           </div>
           <div class="text-sm text-gray-500 dark:text-gray-400">Data parsed from recommended_topics.json in your export.</div>
         </div>

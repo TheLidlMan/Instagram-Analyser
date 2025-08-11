@@ -241,6 +241,11 @@ function computeAnalytics(threads) {
   const hours = Array(24).fill(0);
   const words = new Map();
   const bySender = new Map();
+  const bySenderTextLen = new Map();
+  const bySenderMsgCount = new Map();
+  const bySenderWords = new Map();
+  const bySenderMedia = new Map();
+  const goodBoyBySender = new Map();
 
   let minTs = Infinity, maxTs = -Infinity;
   let totalLength = 0, textCount = 0;
@@ -269,13 +274,24 @@ function computeAnalytics(threads) {
         const hour = new Date(m.timestamp_ms).getHours();
         hours[hour]++;
       }
-      if (m.content) {
+    if (m.content) {
         const text = m.content;
         totalLength += text.length; textCount++;
         lengths.push(text.length);
   const ems = extractEmojis(text).filter(isEmojiToken);
   for (const e of ems) emojiTextCounts.set(e, (emojiTextCounts.get(e)||0)+1);
-        for (const w of tokenizeWords(text)) words.set(w, (words.get(w)||0)+1);
+        const toks = tokenizeWords(text);
+        for (const w of toks) words.set(w, (words.get(w)||0)+1);
+        if (m.sender_name) {
+          bySenderTextLen.set(m.sender_name, (bySenderTextLen.get(m.sender_name)||0) + text.length);
+          bySenderMsgCount.set(m.sender_name, (bySenderMsgCount.get(m.sender_name)||0) + 1);
+          bySenderWords.set(m.sender_name, (bySenderWords.get(m.sender_name)||0) + toks.length);
+      // 'good boy' counter (case-insensitive, allows multiple spaces)
+      const lower = text.toLowerCase();
+      const matches = lower.match(/\bgood\s+boy\b/g);
+      const inc = matches ? matches.length : 0;
+      if (inc) goodBoyBySender.set(m.sender_name, (goodBoyBySender.get(m.sender_name)||0) + inc);
+        }
       }
       if (Array.isArray(m.reactions)) {
         reactions += m.reactions.length;
@@ -286,9 +302,9 @@ function computeAnalytics(threads) {
           }
         }
       }
-      if (Array.isArray(m.photos) && m.photos.length) { photos += m.photos.length; mediaMsgs++; }
-      if (Array.isArray(m.videos) && m.videos.length) { videos += m.videos.length; mediaMsgs++; }
-      if (Array.isArray(m.audio_files) && m.audio_files.length) { audios += m.audio_files.length; mediaMsgs++; }
+  if (Array.isArray(m.photos) && m.photos.length) { photos += m.photos.length; mediaMsgs++; if (m.sender_name) bySenderMedia.set(m.sender_name, (bySenderMedia.get(m.sender_name)||0) + m.photos.length); }
+  if (Array.isArray(m.videos) && m.videos.length) { videos += m.videos.length; mediaMsgs++; if (m.sender_name) bySenderMedia.set(m.sender_name, (bySenderMedia.get(m.sender_name)||0) + m.videos.length); }
+  if (Array.isArray(m.audio_files) && m.audio_files.length) { audios += m.audio_files.length; mediaMsgs++; if (m.sender_name) bySenderMedia.set(m.sender_name, (bySenderMedia.get(m.sender_name)||0) + m.audio_files.length); }
     }
   }
 
@@ -301,6 +317,59 @@ function computeAnalytics(threads) {
   const totalEmoji = (map) => Array.from(map.values()).reduce((a,b)=>a+b,0);
   overview.totalEmojis = totalEmoji(emojiTextCounts) + totalEmoji(emojiReactionCounts);
 
+  // Highest messages in a single day
+  let maxPerDayCount = 0; let maxPerDayDate = '-';
+  if (daily.size) {
+    const maxEntry = [...daily.entries()].sort((a,b)=>b[1]-a[1])[0];
+    if (maxEntry) { maxPerDayDate = maxEntry[0]; maxPerDayCount = maxEntry[1]; }
+  }
+
+  // Streaks
+  function computeStreaks(minTs, maxTs){
+    if (!isFinite(minTs) || !isFinite(maxTs)) return { current: 0, longest: 0 };
+    const start = toDateOnly(minTs);
+    const end = toDateOnly(maxTs);
+    const active = new Set([...daily.entries()].map(e=>e[0]));
+    let longest = 0, current = 0, run = 0;
+    for (let d = new Date(start); d <= end; d = new Date(d.getTime()+86400000)) {
+      const key = d.toISOString().slice(0,10);
+      if (active.has(key)) { run++; longest = Math.max(longest, run); }
+      else { run = 0; }
+    }
+    // current streak from end backwards
+    for (let d = new Date(end); d >= start; d = new Date(d.getTime()-86400000)) {
+      const key = d.toISOString().slice(0,10);
+      if (active.has(key)) current++; else break;
+    }
+    return { current, longest };
+  }
+  const streak = computeStreaks(minTs, maxTs);
+
+  // Trend: compare last 30 days vs previous 30 days
+  function sumRange(from, to){
+    let sum = 0;
+    for (let d = new Date(from); d <= to; d = new Date(d.getTime()+86400000)) {
+      const k = d.toISOString().slice(0,10);
+      sum += daily.get(k) || 0;
+    }
+    return sum;
+  }
+  let trend = { direction: 'flat', deltaPct: 0 };
+  if (isFinite(maxTs)) {
+    const end = toDateOnly(maxTs);
+    const start2 = new Date(end.getTime()-29*86400000);
+    const prevEnd = new Date(start2.getTime()-1*86400000);
+    const prevStart = new Date(prevEnd.getTime()-29*86400000);
+    const curr = sumRange(start2, end);
+    const prev = sumRange(prevStart, prevEnd);
+    if (prev === 0 && curr > 0) trend = { direction: 'up', deltaPct: 100 };
+    else if (prev === 0 && curr === 0) trend = { direction: 'flat', deltaPct: 0 };
+    else {
+      const delta = ((curr - prev) / Math.max(1, prev)) * 100;
+      trend = { direction: delta > 3 ? 'up' : (delta < -3 ? 'down' : 'flat'), deltaPct: Math.round(delta) };
+    }
+  }
+
   const stats = { 
     avgPerDay: overview.totalMessages / (overview.rangeDays || 1), 
     mostActiveDayLabel: '-', 
@@ -312,7 +381,14 @@ function computeAnalytics(threads) {
     uniqueActiveDays: daily.size,
     media: { photos, videos, audios, messagesWithMedia: mediaMsgs },
     reactionsTotal: reactions,
-    topSender: '-'
+    topSender: '-',
+    maxPerDayCount,
+    maxPerDayDate,
+    streakCurrent: streak.current,
+    streakLongest: streak.longest,
+    activeDaysPct: overview.rangeDays ? Math.round((daily.size / overview.rangeDays) * 100) : 0,
+  trend,
+  wordsTotal: Array.from(words.values()).reduce((a,b)=>a+b,0)
   };
 
   if (daily.size) {
@@ -335,6 +411,12 @@ function computeAnalytics(threads) {
     const bestSender = [...bySender.entries()].sort((a,b)=>b[1]-a[1])[0];
     stats.topSender = `${bestSender[0]} (${bestSender[1].toLocaleString()} msgs)`;
   }
+  let topMediaSender = null;
+  if (bySenderMedia.size) {
+    const top = [...bySenderMedia.entries()].sort((a,b)=>b[1]-a[1])[0];
+    topMediaSender = `${top[0]} (${top[1].toLocaleString()} media)`;
+  }
+  stats.topMediaSender = topMediaSender || '-';
 
   const charts = {
     conversationsTop10: topNMap(convCounts, 10),
@@ -343,7 +425,19 @@ function computeAnalytics(threads) {
     emojisCombinedTop15: topNMap(mergeCountMaps(emojiTextCounts, emojiReactionCounts), 15),
     dailySeries: [...daily.entries()].sort((a,b)=>a[0].localeCompare(b[0])),
     hoursSeries: hours.map((v,i)=>[i, v]),
-    wordsTop20: topNMap(words, 20)
+    wordsTop20: topNMap(words, 20),
+    bySenderSorted: topNMap(bySender, bySender.size),
+    bySenderAvgLen: (()=>{
+      const arr = [];
+      for (const [name, sumLen] of bySenderTextLen.entries()) {
+        const cnt = bySenderMsgCount.get(name)||1;
+        arr.push([name, +(sumLen/cnt).toFixed(1)]);
+      }
+      return arr.sort((a,b)=>b[1]-a[1]);
+    })(),
+    bySenderWords: [...bySenderWords.entries()].sort((a,b)=>b[1]-a[1]),
+  bySenderMedia: [...bySenderMedia.entries()].sort((a,b)=>b[1]-a[1]),
+  goodBoyBySenderSorted: [...goodBoyBySender.entries()].sort((a,b)=>b[1]-a[1])
   };
 
   return { overview, stats, charts };
