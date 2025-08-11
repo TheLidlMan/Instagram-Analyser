@@ -58,6 +58,30 @@ const STOP_WORDS = new Set((`a,an,the,and,or,of,to,in,is,it,that,this,for,on,wit
   .split(',')
   .map(s => s.trim()));
 
+// Words from system messages or Instagram-y boilerplate we don't want in stats
+const BAD_WORDS = new Set([
+  'message','messages','liked','like','reaction','reacted','removed','unsent','shared','sent','photo','video','audio','gif','sticker','mentioned','created','named','joined','left','missed','call','called','voice','seen','story','reply','replied','forwarded','chat','group','attachment'
+]);
+
+function isEmojiToken(s){
+  if (!s || typeof s !== 'string') return false;
+  // Must not contain letters or digits
+  if (/[A-Za-z0-9]/.test(s)) return false;
+  // Prefer Unicode property check when available
+  try {
+    if (/(\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji})/u.test(s)) return true;
+  } catch {}
+  // Fallback: presence of VS16/ZWJ or codepoints in typical emoji ranges
+  if (/\uFE0F|\u200D/.test(s)) return true;
+  const cp = s.codePointAt(0) || 0;
+  return (
+    (cp >= 0x1F000 && cp <= 0x1FAFF) ||
+    (cp >= 0x1F300 && cp <= 0x1F6FF) ||
+    (cp >= 0x1F900 && cp <= 0x1F9FF) ||
+    (cp >= 0x2600 && cp <= 0x27BF)
+  );
+}
+
 function tokenizeWords(text) {
   if (!text) return [];
   const lower = decodeMojibake(text).toLowerCase();
@@ -69,7 +93,7 @@ function tokenizeWords(text) {
     cleaned = lower.replace(/[^a-z0-9\s]/g, ' ');
   }
   const words = cleaned.split(/\s+/).filter(Boolean);
-  return words.filter(w => !STOP_WORDS.has(w) && !/^\d+$/.test(w));
+  return words.filter(w => w.length > 1 && !STOP_WORDS.has(w) && !BAD_WORDS.has(w) && !/^\d+$/.test(w));
 }
 
 // ============ Parsing ============
@@ -211,7 +235,8 @@ function normalizeTopics(obj){
 function computeAnalytics(threads) {
   const overview = { totalMessages: 0, totalConversations: threads.length, totalEmojis: 0, startDate: '-', endDate: '-', rangeDays: 0 };
   const convCounts = new Map();
-  const emojiCounts = new Map();
+  const emojiTextCounts = new Map();
+  const emojiReactionCounts = new Map();
   const daily = new Map();
   const hours = Array(24).fill(0);
   const words = new Map();
@@ -248,16 +273,16 @@ function computeAnalytics(threads) {
         const text = m.content;
         totalLength += text.length; textCount++;
         lengths.push(text.length);
-        const ems = extractEmojis(text);
-        for (const e of ems) emojiCounts.set(e, (emojiCounts.get(e)||0)+1);
+  const ems = extractEmojis(text).filter(isEmojiToken);
+  for (const e of ems) emojiTextCounts.set(e, (emojiTextCounts.get(e)||0)+1);
         for (const w of tokenizeWords(text)) words.set(w, (words.get(w)||0)+1);
       }
       if (Array.isArray(m.reactions)) {
         reactions += m.reactions.length;
         for (const r of m.reactions) {
           if (r && r.reaction) {
-            const ems = extractEmojis(r.reaction);
-            for (const e of ems) emojiCounts.set(e, (emojiCounts.get(e)||0)+1);
+            const ems = extractEmojis(r.reaction).filter(isEmojiToken);
+            for (const e of ems) emojiReactionCounts.set(e, (emojiReactionCounts.get(e)||0)+1);
           }
         }
       }
@@ -273,7 +298,8 @@ function computeAnalytics(threads) {
     overview.rangeDays = Math.max(1, Math.round((toDateOnly(maxTs) - toDateOnly(minTs)) / 86400000) + 1);
   }
 
-  overview.totalEmojis = Array.from(emojiCounts.values()).reduce((a,b)=>a+b,0);
+  const totalEmoji = (map) => Array.from(map.values()).reduce((a,b)=>a+b,0);
+  overview.totalEmojis = totalEmoji(emojiTextCounts) + totalEmoji(emojiReactionCounts);
 
   const stats = { 
     avgPerDay: overview.totalMessages / (overview.rangeDays || 1), 
@@ -312,7 +338,9 @@ function computeAnalytics(threads) {
 
   const charts = {
     conversationsTop10: topNMap(convCounts, 10),
-    emojisTop15: topNMap(emojiCounts, 15),
+    emojisTextTop15: topNMap(emojiTextCounts, 15),
+    emojisReactionsTop15: topNMap(emojiReactionCounts, 15),
+    emojisCombinedTop15: topNMap(mergeCountMaps(emojiTextCounts, emojiReactionCounts), 15),
     dailySeries: [...daily.entries()].sort((a,b)=>a[0].localeCompare(b[0])),
     hoursSeries: hours.map((v,i)=>[i, v]),
     wordsTop20: topNMap(words, 20)
@@ -322,6 +350,12 @@ function computeAnalytics(threads) {
 }
 
 function topNMap(map, n) { return [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,n); }
+
+function mergeCountMaps(a, b){
+  const out = new Map(a);
+  for (const [k,v] of b.entries()) out.set(k, (out.get(k)||0)+v);
+  return out;
+}
 
 // ============ Charts ============
 const chartState = { charts: {}, destroy(id){ if(this.charts[id]) { this.charts[id].destroy(); delete this.charts[id]; } } };
@@ -361,7 +395,8 @@ function app() {
     tabs: [
       { id: 'overview', label: 'Overview' },
       { id: 'conversations', label: 'Conversations' },
-      { id: 'emojis', label: 'Emojis' },
+  { id: 'emojis', label: 'Emojis' },
+  { id: 'reactions', label: 'Reactions' },
       { id: 'activity', label: 'Activity' },
       { id: 'words', label: 'Words' },
       { id: 'stats', label: 'Stats' },
@@ -523,7 +558,7 @@ function app() {
       if (tab === 'overview') {
         const [cl, cv] = splitLabelsVals(this.charts.conversationsTop10);
         makeBarChart('chartConversations', cl, cv, { label: 'Messages', color: 'rgba(99,102,241,0.7)' });
-        const [el, ev] = splitLabelsVals(this.charts.emojisTop15);
+  const [el, ev] = splitLabelsVals(this.charts.emojisCombinedTop15);
         makeBarChart('chartEmojis', el, ev, { label: 'Count', color: 'rgba(245,158,11,0.7)' });
       }
       if (tab === 'conversations') {
@@ -531,8 +566,12 @@ function app() {
         makeBarChart('chartConversationsFull', cl, cv, { label: 'Messages', color: 'rgba(59,130,246,0.7)' });
       }
       if (tab === 'emojis') {
-        const [el, ev] = splitLabelsVals(this.charts.emojisTop15);
-        makeBarChart('chartEmojisFull', el, ev, { label: 'Count', color: 'rgba(234,179,8,0.7)' });
+        const [el, ev] = splitLabelsVals(this.charts.emojisTextTop15);
+        makeBarChart('chartEmojisFull', el, ev, { label: 'Text emojis', color: 'rgba(234,179,8,0.7)' });
+      }
+      if (tab === 'reactions') {
+        const [rel, rev] = splitLabelsVals(this.charts.emojisReactionsTop15);
+        makeBarChart('chartReactionEmojis', rel, rev, { label: 'Reaction emojis', color: 'rgba(251,113,133,0.8)' });
       }
       if (tab === 'activity') {
         const labels = this.charts.dailySeries.map(d=>d[0]);
