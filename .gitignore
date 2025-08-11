@@ -1,0 +1,6 @@
+# OS
+.DS_Store
+# Node/Tooling (if added later)
+node_modules/
+dist/
+example_instgram/

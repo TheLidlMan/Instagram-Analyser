@@ -1,136 +1,343 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" x-data="app()" x-init="init()" :class="dark ? 'dark h-full bg-slate-900' : 'h-full bg-gray-50'">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instagram Data Analyzer</title>
-    <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instagram DM Analyzer</title>
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Alpine.js -->
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .results-scroll { max-height: calc(100vh - 260px); overflow: auto; }
+    .chart-wrap { height: 280px; }
+    .truncate-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-clamp: 2; }
+  </style>
 </head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-content">
-                <h1 class="title">
-                    <span class="gradient-text">Instagram</span> Data Analyzer
-                </h1>
-                <p class="subtitle">Discover insights from your Instagram messages</p>
-            </div>
-        </header>
-
-        <!-- Upload Section -->
-        <section class="upload-section" id="uploadSection">
-            <div class="upload-container">
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">📱</div>
-                    <h3>Upload Your Instagram Data</h3>
-                    <p>Drag and drop your Instagram export file here, or click to browse</p>
-                    <input type="file" id="fileInput" accept=".json" hidden>
-                    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
-                        Choose File
-                    </button>
-                </div>
-                <div class="upload-instructions">
-                    <h4>How to export your Instagram data:</h4>
-                    <ol>
-                        <li>Go to Instagram Settings & Privacy</li>
-                        <li>Scroll down to "Data and privacy"</li>
-                        <li>Click "Download your information"</li>
-                        <li>Select "Messages" and request download</li>
-                        <li>Upload the messages.json file here</li>
-                    </ol>
-                </div>
-            </div>
-        </section>
-
-        <!-- Loading Section -->
-        <section class="loading-section" id="loadingSection" style="display: none;">
-            <div class="loading-container">
-                <div class="loading-spinner"></div>
-                <h3>Analyzing your data...</h3>
-                <p>This may take a few moments</p>
-            </div>
-        </section>
-
-        <!-- Results Section -->
-        <section class="results-section" id="resultsSection" style="display: none;">
-            <!-- Overview Cards -->
-            <div class="overview-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">💬</div>
-                    <div class="stat-content">
-                        <h3 id="totalMessages">0</h3>
-                        <p>Total Messages</p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">👥</div>
-                    <div class="stat-content">
-                        <h3 id="totalConversations">0</h3>
-                        <p>Conversations</p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">😊</div>
-                    <div class="stat-content">
-                        <h3 id="totalEmojis">0</h3>
-                        <p>Emojis Used</p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">📅</div>
-                    <div class="stat-content">
-                        <h3 id="dateRange">-</h3>
-                        <p>Date Range</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Charts Grid -->
-            <div class="charts-grid">
-                <!-- Most Active Conversations -->
-                <div class="chart-container">
-                    <h3>Most Active Conversations</h3>
-                    <canvas id="conversationsChart"></canvas>
-                </div>
-
-                <!-- Emoji Usage -->
-                <div class="chart-container">
-                    <h3>Most Used Emojis</h3>
-                    <canvas id="emojisChart"></canvas>
-                </div>
-
-                <!-- Message Activity Over Time -->
-                <div class="chart-container full-width">
-                    <h3>Message Activity Over Time</h3>
-                    <canvas id="activityChart"></canvas>
-                </div>
-
-                <!-- Time of Day Analysis -->
-                <div class="chart-container">
-                    <h3>Message Time Distribution</h3>
-                    <canvas id="timeChart"></canvas>
-                </div>
-
-                <!-- Word Frequency -->
-                <div class="chart-container">
-                    <h3>Most Used Words</h3>
-                    <canvas id="wordsChart"></canvas>
-                </div>
-            </div>
-
-            <!-- Detailed Stats -->
-            <div class="detailed-stats">
-                <h3>Detailed Statistics</h3>
-                <div class="stats-grid" id="detailedStats">
-                    <!-- Will be populated dynamically -->
-                </div>
-            </div>
-        </section>
+<body class="h-full">
+  <header class="shadow bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 dark:from-indigo-600 dark:via-purple-700 dark:to-pink-700">
+    <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-between text-white">
+      <h1 class="text-2xl font-semibold leading-6">Instagram DM Analyzer</h1>
+      <div class="flex items-center gap-3">
+        <button @click="toggleDark" class="rounded-lg bg-white/15 px-3 py-1.5 text-sm hover:bg-white/25">Toggle theme</button>
+        <a class="text-sm underline hover:no-underline" href="https://github.com/TheLidlMan/Instagram-Analyser" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
     </div>
+  </header>
 
-    <script src="script.js"></script>
+  <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+    <!-- Uploader + Filter -->
+    <section class="rounded-xl border border-gray-200 dark:border-slate-700 p-4 sm:p-6 bg-white dark:bg-slate-800">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div class="space-y-1">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Upload your export</h2>
+          <p class="text-sm text-gray-600 dark:text-slate-300">Drag and drop your <span class="font-mono">messages</span> folder or select multiple <span class="font-mono">message_*.json</span> files. Client-side only.</p>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div class="flex items-center gap-2">
+            <label for="fileInput" class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              Select folder/files
+            </label>
+            <input x-ref="fileInput" id="fileInput" type="file" multiple webkitdirectory directory class="hidden" @change="handleFileInput($event)" />
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-sm text-gray-700 dark:text-slate-200">Conversation</label>
+            <div class="flex items-center gap-2">
+              <input type="text" placeholder="Search…" x-model="searchQuery" class="rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm px-2 py-1.5 text-gray-900 dark:text-slate-100"/>
+              <select class="rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm px-2 py-1.5 text-gray-900 dark:text-slate-100"
+                      x-model="selectedThreadKey" @change="applyThreadFilter()">
+                <template x-for="opt in filteredThreadOptions()" :key="opt.key">
+                  <option :value="opt.key" x-text="opt.label"></option>
+                </template>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="dropZone" @dragover.prevent="isDrag=true" @dragleave="isDrag=false" @drop.prevent="onDrop($event)" :class="{'ring-2 ring-blue-500': isDrag}"
+           class="mt-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-300 dark:hover:border-slate-400"
+           @click="$refs.fileInput?.click()">
+        <p class="text-gray-700 dark:text-slate-200">Drop your <span class="font-mono">messages</span> folder or JSON files here</p>
+        <p class="text-xs text-gray-500 dark:text-slate-400 mt-1">Skips non-DM formats like <span class="font-mono">ai_conversations.json</span>. Supports merging multiple <span class="font-mono">message_*.json</span> per thread and aggregated JSON.</p>
+      </div>
+
+      <template x-if="loading">
+        <div class="mt-4 flex items-center gap-3 text-sm text-gray-600 dark:text-slate-300">
+          <svg class="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+          Processing… This stays in your browser.
+        </div>
+      </template>
+      <template x-if="errors.length">
+        <ul class="mt-3 text-sm text-red-600 dark:text-rose-400 list-disc pl-6" x-data>{
+          <template x-for="(e,i) in errors" :key="i">
+            <li x-text="e"></li>
+          </template>
+        }</ul>
+      </template>
+    </section>
+
+    <!-- Results / Tabs -->
+    <section x-show="hasData" x-cloak class="mt-6 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+      <div class="px-4 pt-4 sm:px-6 sm:pt-6">
+        <nav class="-mb-px flex gap-2" aria-label="Tabs">
+          <template x-for="tab in tabs" :key="tab.id">
+            <button @click="setTab(tab.id)" class="whitespace-nowrap rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium"
+                    :class="activeTab===tab.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-transparent text-gray-600 dark:text-slate-300 hover:text-gray-800 dark:hover:text-slate-100 hover:border-gray-300 dark:hover:border-slate-600'"
+                    x-text="tab.label"></button>
+          </template>
+          
+        </nav>
+      </div>
+      <div class="results-scroll p-4 sm:p-6 space-y-6">
+        <!-- Overview cards updated colors for dark mode are inherited -->
+        <div x-show="activeTab==='overview'" x-cloak>
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div class="bg-blue-50 dark:bg-indigo-900/30 border border-blue-100 dark:border-indigo-800 rounded-xl p-3">
+              <div class="text-xs text-blue-700 dark:text-indigo-300">Messages</div>
+              <div class="text-xl font-semibold text-blue-900 dark:text-indigo-200" x-text="overview.totalMessages.toLocaleString()"></div>
+            </div>
+            <div class="bg-purple-50 dark:bg-purple-900/30 border border-purple-100 dark:border-purple-800 rounded-xl p-3">
+              <div class="text-xs text-purple-700 dark:text-purple-300">Conversations</div>
+              <div class="text-xl font-semibold text-purple-900 dark:text-purple-200" x-text="overview.totalConversations.toLocaleString()"></div>
+            </div>
+            <div class="bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 rounded-xl p-3">
+              <div class="text-xs text-amber-700 dark:text-amber-300">Emojis</div>
+              <div class="text-xl font-semibold text-amber-900 dark:text-amber-200" x-text="overview.totalEmojis.toLocaleString()"></div>
+            </div>
+            <div class="bg-green-50 dark:bg-emerald-900/30 border border-green-100 dark:border-emerald-800 rounded-xl p-3">
+              <div class="text-xs text-green-700 dark:text-emerald-300">Start</div>
+              <div class="text-sm font-medium text-green-900 dark:text-emerald-200" x-text="overview.startDate"></div>
+            </div>
+            <div class="bg-rose-50 dark:bg-rose-900/30 border border-rose-100 dark:border-rose-800 rounded-xl p-3">
+              <div class="text-xs text-rose-700 dark:text-rose-300">End</div>
+              <div class="text-sm font-medium text-rose-900 dark:text-rose-200" x-text="overview.endDate"></div>
+            </div>
+            <div class="bg-slate-50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-700 rounded-xl p-3">
+              <div class="text-xs text-slate-700 dark:text-slate-300">Range (days)</div>
+              <div class="text-xl font-semibold text-slate-900 dark:text-slate-200" x-text="overview.rangeDays.toLocaleString()"></div>
+            </div>
+          </div>
+
+          <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="h-2 w-2 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500"></span>
+                <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100">Top 10 Conversations</h3>
+              </div>
+              <div class="chart-wrap"><canvas id="chartConversations"></canvas></div>
+            </div>
+            <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="h-2 w-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500"></span>
+                <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100">Top 15 Emojis</h3>
+              </div>
+              <div class="chart-wrap"><canvas id="chartEmojis"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Conversations -->
+        <div x-show="activeTab==='conversations'" x-cloak>
+          <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Most Active Threads</h3>
+            <div class="chart-wrap"><canvas id="chartConversationsFull"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Emojis -->
+        <div x-show="activeTab==='emojis'" x-cloak>
+          <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Most Used Emojis (incl. reactions)</h3>
+            <div class="chart-wrap"><canvas id="chartEmojisFull"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Activity -->
+        <div x-show="activeTab==='activity'" x-cloak>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Daily Message Counts</h3>
+              <div class="chart-wrap"><canvas id="chartDaily"></canvas></div>
+            </div>
+            <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Time of Day (0-23)</h3>
+              <div class="chart-wrap"><canvas id="chartHours"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Words -->
+        <div x-show="activeTab==='words'" x-cloak>
+          <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Top Words</h3>
+            <div class="chart-wrap"><canvas id="chartWords"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div x-show="activeTab==='stats'" x-cloak>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Detailed Stats</h3>
+              <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-800 dark:text-slate-200">
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Avg messages/day</dt>
+                  <dd class="font-medium" x-text="stats.avgPerDay.toFixed(2)"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Unique active days</dt>
+                  <dd class="font-medium" x-text="stats.uniqueActiveDays.toLocaleString()"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Most active day</dt>
+                  <dd class="font-medium" x-text="stats.mostActiveDayLabel"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Most active hour</dt>
+                  <dd class="font-medium" x-text="stats.mostActiveHourLabel"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Avg message length</dt>
+                  <dd class="font-medium" x-text="stats.avgMsgLength.toFixed(1) + ' chars'"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Median message length</dt>
+                  <dd class="font-medium" x-text="stats.medianMsgLength + ' chars'"></dd>
+                </div>
+                <div class>
+                  <dt class="text-gray-600 dark:text-slate-400">Most active conversation</dt>
+                  <dd class="font-medium truncate-2" x-text="stats.mostActiveConversation"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Top 1:1 contact</dt>
+                  <dd class="font-medium truncate-2" x-text="stats.topOneToOne"></dd>
+                </div>
+                
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Photos</dt>
+                  <dd class="font-medium" x-text="stats.media.photos.toLocaleString()"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Videos</dt>
+                  <dd class="font-medium" x-text="stats.media.videos.toLocaleString()"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Audio</dt>
+                  <dd class="font-medium" x-text="stats.media.audios.toLocaleString()"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Messages with media</dt>
+                  <dd class="font-medium" x-text="stats.media.messagesWithMedia.toLocaleString()"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Total reactions</dt>
+                  <dd class="font-medium" x-text="stats.reactionsTotal.toLocaleString()"></dd>
+                </div>
+                <div>
+                  <dt class="text-gray-600 dark:text-slate-400">Top sender</dt>
+                  <dd class="font-medium" x-text="stats.topSender"></dd>
+                </div>
+              </dl>
+            </div>
+            <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-4 border border-gray-200 dark:border-slate-700">
+              <h3 class="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-2">Notes</h3>
+              <ul class="list-disc pl-5 text-sm text-gray-700 dark:text-slate-300 space-y-1">
+                <li>Use the Conversation filter to focus on a specific thread (titles are cleaned of emojis).</li>
+                <li>Charts update to match the selected conversation.</li>
+                <li>Toggle the theme for a dark UI and recolored charts.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Engagement - New Tab Content -->
+  <div x-show="activeTab==='engagement'" class="space-y-6" x-cloak>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Total saves</div>
+              <div class="text-2xl font-semibold" x-text="extrasAnalytics?.saves.total ?? 0"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">First save</div>
+              <div class="text-xl" x-text="extrasAnalytics?.saves.first || '-' "></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Last save</div>
+              <div class="text-xl" x-text="extrasAnalytics?.saves.last || '-' "></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Types</div>
+              <div class="text-sm" x-text="`Posts: ${extrasAnalytics?.saves.typeCount.post||0} · Reels: ${extrasAnalytics?.saves.typeCount.reel||0}`"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Saves over time</div>
+              <div class="chart-wrap"><canvas id="chartSavesTimeline"></canvas></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Top saved creators</div>
+              <div class="chart-wrap"><canvas id="chartSavesTopCreators"></canvas></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Top saved domains</div>
+              <div class="chart-wrap"><canvas id="chartSavesTopDomains"></canvas></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Total comments</div>
+              <div class="text-2xl font-semibold" x-text="extrasAnalytics?.comments.total ?? 0"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Avg length</div>
+              <div class="text-xl" x-text="Math.round(extrasAnalytics?.comments.avgLen||0)"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Median length</div>
+              <div class="text-xl" x-text="Math.round(extrasAnalytics?.comments.medianLen||0)"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Range</div>
+              <div class="text-sm" x-text="`${extrasAnalytics?.comments.first||'-'} → ${extrasAnalytics?.comments.last||'-'}`"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Comments over time</div>
+              <div class="chart-wrap"><canvas id="chartCommentsTimeline"></canvas></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Owners you comment on</div>
+              <div class="chart-wrap"><canvas id="chartCommentsTopOwners"></canvas></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Top comment emojis</div>
+              <div class="chart-wrap"><canvas id="chartCommentsTopEmojis"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interests - New Tab Content -->
+    <div x-show="activeTab==='interests'" class="space-y-6" x-cloak>
+          <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+            <div class="text-sm text-gray-600 dark:text-gray-300 mb-2">Top topics</div>
+      <div class="chart-wrap"><canvas id="chartTopicsTop"></canvas></div>
+          </div>
+          <div class="text-sm text-gray-500 dark:text-gray-400">Data parsed from recommended_topics.json in your export.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="./assets/app.js"></script>
 </body>
 </html>
