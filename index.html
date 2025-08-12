@@ -10,12 +10,21 @@
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <style>
-    [x-cloak] { display: none !important; }
-    .results-scroll { max-height: calc(100vh - 260px); overflow: auto; }
-    .chart-wrap { height: 280px; }
-    .truncate-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-clamp: 2; }
-  </style>
+  <!-- App styles -->
+  <link rel="stylesheet" href="./assets/styles.css" />
+  <!-- Leaflet (for login map) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  
 </head>
 <body class="h-full">
   <header class="shadow bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 dark:from-indigo-600 dark:via-purple-700 dark:to-pink-700">
@@ -44,7 +53,7 @@
             </label>
             <input x-ref="fileInput" id="fileInput" type="file" multiple webkitdirectory directory class="hidden" @change="handleFileInput($event)" />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2" x-show="hasData" x-cloak>
             <label class="text-sm text-gray-700 dark:text-slate-200">Conversation</label>
             <div class="flex items-center gap-2">
               <input type="text" placeholder="Search…" x-model="searchQuery" class="rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm px-2 py-1.5 text-gray-900 dark:text-slate-100"/>
@@ -62,8 +71,8 @@
       <div id="dropZone" @dragover.prevent="isDrag=true" @dragleave="isDrag=false" @drop.prevent="onDrop($event)" :class="{'ring-2 ring-blue-500': isDrag}"
            class="mt-4 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-300 dark:hover:border-slate-400"
            @click="$refs.fileInput?.click()">
-        <p class="text-gray-700 dark:text-slate-200">Drop your <span class="font-mono">messages</span> folder or JSON files here</p>
-        <p class="text-xs text-gray-500 dark:text-slate-400 mt-1">Skips non-DM formats like <span class="font-mono">ai_conversations.json</span>. Supports merging multiple <span class="font-mono">message_*.json</span> per thread and aggregated JSON.</p>
+  <p class="text-gray-700 dark:text-slate-200">Drop your Instagram export root (recommended) or the <span class="font-mono">messages</span> folder / JSON files here</p>
+  <p class="text-xs text-gray-500 dark:text-slate-400 mt-1">Automatically skips unsupported files. Supports DM threads, saved items, comments, topics, login activity, and profile changes when present.</p>
       </div>
 
       <template x-if="loading">
@@ -452,6 +461,206 @@
             </div>
           </div>
           <div class="text-sm text-gray-500 dark:text-gray-400">Data parsed from recommended_topics.json in your export.</div>
+        </div>
+
+        <!-- Security - Logins and Profile Changes -->
+        <div x-show="activeTab==='security'" class="space-y-6" x-cloak>
+          <!-- Top Stats -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Total logins</div>
+              <div class="text-2xl font-semibold" x-text="extrasSecurity?.logins.total ?? 0"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Unique locations</div>
+              <div class="text-2xl font-semibold" x-text="extrasSecurity?.logins.uniqueLocations ?? 0"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Device types</div>
+              <div class="text-2xl font-semibold" x-text="extrasSecurity?.devices.types?.length ?? 0"></div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm text-gray-500 dark:text-gray-400">Unique IPs</div>
+              <div class="text-2xl font-semibold" x-text="extrasSecurity?.devices.uniqueIPs ?? 0"></div>
+            </div>
+          </div>
+
+          <!-- Login Timeline and Map -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="p-4 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Logins over time</div>
+              <div class="chart-wrap"><canvas id="chartLoginTimeline"></canvas></div>
+            </div>
+            <div class="p-4 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
+              <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Login locations map</div>
+              <div id="mapLogins" class="w-full"></div>
+              <div class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                🔐 Logins · 📍 Location data · External tiles (OpenStreetMap)
+              </div>
+            </div>
+          </div>
+
+          <!-- Device and Account Info -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Unified Devices Summary -->
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="flex items-baseline justify-between mb-3">
+                <div class="text-sm text-gray-600 dark:text-gray-300">Devices</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400" x-text="(extrasSecurity?.devices.totalUnique||0) + ' unique · ' + (extrasSecurity?.devices.twoFACount||0) + ' 2FA'"></div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
+                <template x-for="dev in (extrasSecurity?.devices.summary || [])" :key="dev.id">
+                  <div class="p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900">
+                    <div class="flex items-center gap-2">
+                      <div class="text-base" x-text="dev.icon"></div>
+                      <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-100 truncate" x-text="dev.title"></div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400 truncate" x-text="dev.subtitle || '-' "></div>
+                      </div>
+                      <div class="text-[10px] text-gray-500 dark:text-gray-400 text-right">
+                        <div x-text="dev.lastSeen"></div>
+                        <div x-text="dev.count + (dev.count === 1 ? ' hit' : ' hits')"></div>
+                      </div>
+                    </div>
+                    <div class="mt-2 flex flex-wrap gap-1">
+                      <template x-for="c in dev.chips" :key="c">
+                        <span class="px-1.5 py-0.5 rounded-md text-[10px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-800 dark:text-indigo-200" x-text="c"></span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                Known devices
+                <div class="mt-1 max-h-20 overflow-y-auto space-y-1">
+                  <template x-for="(d,i) in (extrasSecurity?.devices.known || [])" :key="i">
+                    <div class="text-xs text-gray-700 dark:text-gray-300 truncate" x-text="(d.when||'-') + ' · ' + (d.device||'-')"></div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow" x-show="extrasSecurity?.signup">
+              <div class="text-sm mb-3 text-gray-600 dark:text-gray-300">Account signup</div>
+              <div class="space-y-1 text-sm">
+                <div>
+                  <span class="text-gray-500 dark:text-gray-400">Date:</span>
+                  <span x-text="extrasSecurity?.signup ? fmtDate(extrasSecurity.signup.timestamp_ms) : '-'"></span>
+                </div>
+                <div x-show="extrasSecurity?.signup?.username">
+                  <span class="text-gray-500 dark:text-gray-400">Username:</span>
+                  <span x-text="extrasSecurity?.signup?.username"></span>
+                </div>
+                <div x-show="extrasSecurity?.signup?.phone">
+                  <span class="text-gray-500 dark:text-gray-400">Phone:</span>
+                  <span x-text="extrasSecurity?.signup?.phone"></span>
+                </div>
+                <div x-show="extrasSecurity?.signup?.ip">
+                  <span class="text-gray-500 dark:text-gray-400">IP:</span>
+                  <span class="font-mono text-xs" x-text="extrasSecurity?.signup?.ip"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-3 text-gray-600 dark:text-gray-300">Security summary</div>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">Total logouts:</span>
+                  <span x-text="extrasSecurity?.logouts.total ?? 0"></span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">Profile changes:</span>
+                  <span x-text="extrasSecurity?.profile.events?.length ?? 0"></span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">Location records:</span>
+                  <span x-text="extrasSecurity?.locations ?? 0"></span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500 dark:text-gray-400">Date range:</span>
+                  <span class="text-xs" x-text="`${extrasSecurity?.logins.first||'-'} → ${extrasSecurity?.logins.last||'-'}`"></span>
+                </div>
+                <div class="pt-2 border-t border-gray-200 dark:border-slate-700">
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">2FA devices</div>
+                      <div class="space-y-1 max-h-24 overflow-y-auto">
+                        <template x-for="(d,i) in (extrasSecurity?.devices.twoFA || [])" :key="i">
+                          <div class="text-xs text-gray-700 dark:text-gray-300 truncate" x-text="(d.nickname||'-') + ' · ' + (d.deviceId||'-')"></div>
+                        </template>
+                      </div>
+                    </div>
+                    <div>
+                      <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Inferred emails</div>
+                      <div class="space-y-1 max-h-24 overflow-y-auto">
+                        <template x-for="(e,i) in (extrasSecurity?.devices.inferredEmails || [])" :key="i">
+                          <div class="text-xs text-gray-700 dark:text-gray-300 truncate font-mono" x-text="e"></div>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Activity Lists -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-3 text-gray-600 dark:text-gray-300">Recent logins</div>
+              <div class="max-h-64 overflow-y-auto">
+                <ul class="text-sm divide-y divide-gray-200 dark:divide-slate-700">
+                  <template x-for="row in (extrasSecurity?.logins.recent || [])" :key="row.id">
+                    <li class="py-2">
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="font-medium text-gray-800 dark:text-gray-100" x-text="row.when"></span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400 font-mono" x-text="row.ip || '-'"></span>
+                      </div>
+                      <div class="text-gray-600 dark:text-gray-300 text-xs truncate" x-text="row.device || '-'"></div>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+              <div class="text-sm mb-3 text-gray-600 dark:text-gray-300">Profile & security changes</div>
+              <div class="max-h-64 overflow-y-auto">
+                <ul class="text-sm space-y-2">
+                  <template x-for="e in (extrasSecurity?.profile.events || [])" :key="e.id">
+                    <li class="flex items-start justify-between">
+                      <div>
+                        <div class="text-gray-800 dark:text-gray-100" x-text="e.when"></div>
+                        <div class="text-xs">
+                          <span class="text-gray-500 dark:text-gray-400" x-text="e.type + ':'"></span>
+                          <span class="text-gray-600 dark:text-gray-300 ml-1" x-text="e.value"></span>
+                        </div>
+                      </div>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Logouts (if any) -->
+          <div x-show="extrasSecurity?.logouts.total > 0" class="p-4 rounded-xl bg-white dark:bg-gray-800 shadow">
+            <div class="text-sm mb-3 text-gray-600 dark:text-gray-300">Recent logouts</div>
+            <div class="max-h-48 overflow-y-auto">
+              <ul class="text-sm divide-y divide-gray-200 dark:divide-slate-700">
+                <template x-for="row in (extrasSecurity?.logouts.recent || [])" :key="row.id">
+                  <li class="py-2">
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="font-medium text-gray-800 dark:text-gray-100" x-text="row.when"></span>
+                      <span class="text-xs text-gray-500 dark:text-gray-400 font-mono" x-text="row.ip || '-'"></span>
+                    </div>
+                    <div class="text-gray-600 dark:text-gray-300 text-xs truncate" x-text="row.device || '-'"></div>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
     </section>

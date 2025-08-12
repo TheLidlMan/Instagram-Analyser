@@ -102,7 +102,7 @@ async function readAllJsonFiles(fileList) {
   const files = Array.from(fileList).filter(f => f.name.endsWith('.json'));
   const skipNames = new Set(['ai_conversations.json', 'secret_conversations.json', 'reported_conversations.json']);
   const threadsRaw = [];
-  const extra = { saves: [], comments: [], topics: [] };
+  const extra = { saves: [], comments: [], topics: [], logins: [], logouts: [], devices: [], profile: [], signup: [], lastLocation: [], geoPoints: [], twoFA: [], camera: [], inferredEmails: [] };
   for (const file of files) {
     if (skipNames.has(file.name)) continue;
     try {
@@ -124,6 +124,38 @@ async function readAllJsonFiles(fileList) {
         extra.comments.push(...normalizeCommentsPosts(json));
       } else if (isTopics(json)) {
         extra.topics.push(...normalizeTopics(json));
+      } else if (isLoginHistory(json)) {
+        extra.logins.push(...normalizeLogins(json));
+      } else if (isDeviceInfo(json)) {
+        extra.devices.push(...normalizeDevices(json));
+      } else if (isProfileChanges(json)) {
+        extra.profile.push(...normalizeProfile(json));
+      } else if (isLogoutActivity(json)) {
+        extra.logouts.push(...normalizeLogout(json));
+      } else if (isPasswordChangeActivity(json)) {
+        extra.profile.push(...normalizePasswordChanges(json));
+      } else if (isProfilePrivacyChanges(json)) {
+        extra.profile.push(...normalizeProfilePrivacy(json));
+      } else if (isProfileStatusChanges(json)) {
+        extra.profile.push(...normalizeProfileStatus(json));
+      } else if (isSignupDetails(json)) {
+        const { signup, profile } = normalizeSignupDetails(json);
+        extra.signup.push(...signup);
+        extra.profile.push(...profile);
+      } else if (isLastKnownLocation(json)) {
+        extra.lastLocation.push(...normalizeLastKnownLocation(json));
+      } else if (isLocationsOfInterest(json)) {
+        extra.geoPoints.push(...normalizeLocationsOfInterest(json));
+      } else if (isFriendMap(json)) {
+        extra.geoPoints.push(...normalizeFriendMap(json));
+      } else if (isMediaWithLocation(json)) {
+        extra.geoPoints.push(...normalizeMediaWithLocation(json));
+      } else if (isTwoFactorDevices(json)) {
+        extra.twoFA.push(...normalizeTwoFactorDevices(json));
+      } else if (isCameraDevices(json)) {
+        extra.camera.push(...normalizeCameraDevices(json));
+      } else if (isPossibleEmails(json)) {
+        extra.inferredEmails.push(...normalizePossibleEmails(json));
       }
     } catch (e) {
       console.warn('Failed to parse', file.name, e);
@@ -145,6 +177,48 @@ function isSaved(obj){ return obj && Array.isArray(obj.saved_saved_media); }
 function isCommentsReels(obj){ return obj && Array.isArray(obj.comments_reels_comments); }
 function isCommentsPosts(obj){ return Array.isArray(obj) && obj.length && obj[0].string_map_data && (obj[0].string_map_data.Time || obj[0].string_map_data.Comment); }
 function isTopics(obj){ return obj && Array.isArray(obj.topics_your_topics); }
+// Security-related recognizers (updated to match actual IG export format)
+function isLoginHistory(obj){
+  return obj && Array.isArray(obj.account_history_login_history);
+}
+function isDeviceInfo(obj){ return obj && (Array.isArray(obj.account_device_history) || Array.isArray(obj.devices_sessions) || Array.isArray(obj.devices_devices)); }
+function isProfileChanges(obj){
+  // personal_information/profile_changes/profile_changes.json: { profile_changes: [ { changed_property, new_value, timestamp } ] }
+  return obj && (Array.isArray(obj.profile_changes) || Array.isArray(obj.account_profile_changes));
+}
+function isLogoutActivity(obj){ return obj && Array.isArray(obj.account_history_logout_history); }
+function isPasswordChangeActivity(obj){ return obj && Array.isArray(obj.account_history_password_change_history); }
+function isProfilePrivacyChanges(obj){ return obj && Array.isArray(obj.account_history_account_privacy_history); }
+function isProfileStatusChanges(obj){ return obj && Array.isArray(obj.account_history_account_active_status_changes); }
+function isSignupDetails(obj){ return obj && Array.isArray(obj.account_history_registration_info); }
+function isLastKnownLocation(obj){ return obj && Array.isArray(obj.account_history_imprecise_last_known_location); }
+// Additional location sources
+function isLocationsOfInterest(obj){
+  if (!obj) return false;
+  if (Array.isArray(obj.locations_of_interest)) return true;
+  if (Array.isArray(obj) && obj.length && obj[0] && obj[0].string_map_data && (obj[0].string_map_data['Latitude'] || obj[0].string_map_data['Imprecise Latitude'])) return true;
+  if (Array.isArray(obj.label_values)) {
+    const lv = obj.label_values.find(x => (x.label||'').toLowerCase().includes('locations of interest'));
+    if (lv && (Array.isArray(lv.vec) || typeof lv.value === 'string')) return true;
+  }
+  return false;
+}
+function isFriendMap(obj){
+  const arr = (obj && (obj.instagram_friend_map || obj.nodes)) || null;
+  if (Array.isArray(arr) && arr.length) return true;
+  return false;
+}
+function isMediaWithLocation(obj){
+  if (!obj) return false;
+  if (Array.isArray(obj)) {
+    return obj.some(it => it && (it.location || (Array.isArray(it.media) && it.media.some(m=>m && m.location))));
+  }
+  if (Array.isArray(obj.media)) return obj.media.some(m=>m && m.location);
+  return false;
+}
+function isTwoFactorDevices(obj){ return obj && Array.isArray(obj.devices_two_factor_authentication); }
+function isCameraDevices(obj){ return obj && Array.isArray(obj.devices_camera); }
+function isPossibleEmails(obj){ return obj && Array.isArray(obj.inferred_data_inferred_emails); }
 
 function normalizeAggregated(arr) {
   return arr.map(normalizeThread);
@@ -227,6 +301,292 @@ function normalizeTopics(obj){
   for (const it of obj.topics_your_topics || []) {
     const name = it.string_map_data && it.string_map_data.Name && it.string_map_data.Name.value;
     if (name) out.push(name);
+  }
+  return out;
+}
+
+// ---------- Security normalizers ----------
+function normKey(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+function smdVal(smd, key){
+  if (!smd) return undefined;
+  const nk = normKey(key);
+  for (const k of Object.keys(smd)) if (normKey(k) === nk) return smd[k];
+  return undefined;
+}
+function pickSmdValue(smd, key){ const v = smdVal(smd, key); return v ? (v.value ?? v.href ?? '') : ''; }
+function pickSmdTs(smd, key){ const v = smdVal(smd, key); return v ? (v.timestamp ? v.timestamp*1000 : (v.value && !isNaN(+v.value) ? +v.value : 0)) : 0; }
+
+function normalizeLogins(obj){
+  const src = obj.account_history_login_history || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    // Extract timestamp from title (ISO format) or Time field
+    let ts = 0;
+    if (it.title && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(it.title)) {
+      ts = new Date(it.title).getTime();
+    } else {
+      ts = pickSmdTs(smd, 'Time');
+    }
+  const location = pickSmdValue(smd,'City') || pickSmdValue(smd,'Location') || pickSmdValue(smd,'Region') || pickSmdValue(smd,'Country') || pickSmdValue(smd,'Country Code') || '';
+    const country = pickSmdValue(smd,'Country') || '';
+    const countryCode = (pickSmdValue(smd,'Country Code') || '').toUpperCase();
+    const ip = pickSmdValue(smd,'IP Address') || pickSmdValue(smd,'IP') || '';
+    const device = pickSmdValue(smd,'User Agent') || pickSmdValue(smd,'Device') || '';
+    // Geo if present
+    let lat = null, lon = null;
+    const latV = pickSmdValue(smd,'Latitude'); 
+    const lonV = pickSmdValue(smd,'Longitude');
+    if (latV && lonV && !isNaN(+latV) && !isNaN(+lonV)) { lat = +latV; lon = +lonV; }
+    out.push({ timestamp_ms: ts, location, ip, device, lat, lon, country, countryCode });
+  }
+  return out;
+}
+
+function normalizeDevices(obj){
+  const src = obj.account_device_history || obj.devices_sessions || obj.devices_devices || [];
+  const out = [];
+  for (const it of src) {
+    let device = it.device || it.device_model || it.user_agent || it.os || '';
+    let last = (it.last_login_timestamp_ms != null ? it.last_login_timestamp_ms : (it.last_login_timestamp ? it.last_login_timestamp*1000 : 0));
+    if (!device && it.string_map_data) device = pickSmdValue(it.string_map_data, 'User Agent') || '';
+    if (!last && it.string_map_data) last = pickSmdTs(it.string_map_data, 'Last Login') || 0;
+    out.push({ device, last_login_ms: last });
+  }
+  return out;
+}
+
+function normalizeProfile(obj){
+  const src = obj.profile_changes || obj.account_profile_changes || [];
+  const out = [];
+  for (const it of src) {
+    const type = it.changed_property || it.property || '';
+    const value = decodeMojibake(it.new_value || it.value || '');
+    const ts = (it.timestamp_ms != null ? it.timestamp_ms : (it.timestamp ? it.timestamp*1000 : 0));
+    out.push({ type, value, timestamp_ms: ts });
+  }
+  return out;
+}
+
+function normalizeLogout(obj){
+  const src = obj.account_history_logout_history || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    // Extract timestamp from title (ISO format) or Time field
+    let ts = 0;
+    if (it.title && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(it.title)) {
+      ts = new Date(it.title).getTime();
+    } else {
+      ts = pickSmdTs(smd, 'Time');
+    }
+    const location = pickSmdValue(smd,'City') || pickSmdValue(smd,'Location') || '';
+    const ip = pickSmdValue(smd,'IP Address') || pickSmdValue(smd,'IP') || '';
+    const device = pickSmdValue(smd,'User Agent') || pickSmdValue(smd,'Device') || '';
+    const cookie = pickSmdValue(smd,'Cookie Name') || '';
+    const language = pickSmdValue(smd,'Language Code') || '';
+    out.push({ timestamp_ms: ts, location, ip, device, cookie, language });
+  }
+  return out;
+}
+
+function normalizePasswordChanges(obj){
+  const src = obj.account_history_password_change_history || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    const ts = pickSmdTs(smd, 'Time') || 0;
+    out.push({ type: 'password_change', value: 'Changed', timestamp_ms: ts });
+  }
+  return out;
+}
+
+function normalizeProfilePrivacy(obj){
+  const src = obj.account_history_account_privacy_history || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    const ts = pickSmdTs(smd, 'Time') || 0;
+    const v = it.title || pickSmdValue(smd, 'Privacy') || pickSmdValue(smd,'Status') || '';
+    out.push({ type: 'privacy', value: v, timestamp_ms: ts });
+  }
+  return out;
+}
+
+function normalizeProfileStatus(obj){
+  const src = obj.account_history_account_active_status_changes || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    const ts = pickSmdTs(smd, 'Time') || 0;
+    const activationType = pickSmdValue(smd, 'Activation Type') || '';
+    const automated = pickSmdValue(smd, 'Automated') || '';
+    const reason = pickSmdValue(smd, 'Inactivation Reason') || '';
+    const desc = `${activationType} (${automated})${reason ? ' - ' + reason : ''}`;
+    out.push({ type: 'account_status', value: desc, timestamp_ms: ts });
+  }
+  return out;
+}
+
+function normalizeSignupDetails(obj){
+  const src = obj.account_history_registration_info || [];
+  const signup = [];
+  const profile = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    const ts = pickSmdTs(smd, 'Time') || 0;
+    const email = pickSmdValue(smd, 'Email') || '';
+    const phone = pickSmdValue(smd, 'Phone Number') || '';
+    const username = pickSmdValue(smd, 'Username') || '';
+    const ip = pickSmdValue(smd, 'IP Address') || '';
+    const device = pickSmdValue(smd, 'Device') || '';
+    if (email) profile.push({ type: 'email', value: email, timestamp_ms: ts });
+    if (phone) profile.push({ type: 'phone_number', value: phone, timestamp_ms: ts });
+    if (username) profile.push({ type: 'username', value: username, timestamp_ms: ts });
+    signup.push({ timestamp_ms: ts, email, phone, username, ip, device });
+  }
+  return { signup, profile };
+}
+
+function normalizeLastKnownLocation(obj){
+  const src = obj.account_history_imprecise_last_known_location || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    const ts = pickSmdTs(smd, 'GPS Time Uploaded') || 0;
+    // Get both precise and imprecise coordinates
+    const impreciseLat = pickSmdValue(smd, 'Imprecise Latitude');
+    const impreciseLon = pickSmdValue(smd, 'Imprecise Longitude');
+    const preciseLat = pickSmdValue(smd, 'Precise Latitude');
+    const preciseLon = pickSmdValue(smd, 'Precise Longitude');
+    
+    // Prefer precise if available, fallback to imprecise
+    const lat = (preciseLat && !isNaN(+preciseLat)) ? +preciseLat : 
+                (impreciseLat && !isNaN(+impreciseLat)) ? +impreciseLat : null;
+    const lon = (preciseLon && !isNaN(+preciseLon)) ? +preciseLon : 
+                (impreciseLon && !isNaN(+impreciseLon)) ? +impreciseLon : null;
+    
+    out.push({ 
+      timestamp_ms: ts, 
+      location: 'Last known location', 
+      ip: '', 
+      device: '', 
+      lat, 
+      lon,
+      precise: !!(preciseLat && preciseLon)
+    });
+  }
+  return out;
+}
+
+// ----- Other location sources normalizers -----
+function normalizeLocationsOfInterest(obj){
+  const out = [];
+  // Case 1: array of objects with string_map_data
+  const src = obj.locations_of_interest || obj || [];
+  if (Array.isArray(src) && src.length && src[0] && src[0].string_map_data) {
+    for (const it of src) {
+      const smd = it.string_map_data || {};
+      const name = pickSmdValue(smd, 'Location') || pickSmdValue(smd, 'Name') || it.title || 'Location of interest';
+      const ts = pickSmdTs(smd, 'Time') || pickSmdTs(smd, 'GPS Time Uploaded') || 0;
+      const pLat = pickSmdValue(smd, 'Precise Latitude');
+      const pLon = pickSmdValue(smd, 'Precise Longitude');
+      const iLat = pickSmdValue(smd, 'Imprecise Latitude') || pickSmdValue(smd, 'Latitude');
+      const iLon = pickSmdValue(smd, 'Imprecise Longitude') || pickSmdValue(smd, 'Longitude');
+      const lat = (pLat && !isNaN(+pLat)) ? +pLat : ((iLat && !isNaN(+iLat)) ? +iLat : null);
+      const lon = (pLon && !isNaN(+pLon)) ? +pLon : ((iLon && !isNaN(+iLon)) ? +iLon : null);
+      if (lat != null && lon != null) out.push({ timestamp_ms: ts, lat, lon, location: name, type: 'interest_location' });
+    }
+  }
+  // Case 2: label_values with vec of { value: "City, Country" }
+  if (Array.isArray(obj.label_values)) {
+    const lv = obj.label_values.find(x => (x.label||'').toLowerCase().includes('locations of interest'));
+    if (lv) {
+      const list = Array.isArray(lv.vec) ? lv.vec.map(v => v.value) : (lv.value ? [lv.value] : []);
+      for (const name of list) {
+        if (!name) continue;
+        // Derive country by suffix after comma, or whole string
+        const parts = String(name).split(',');
+        const tail = parts.length > 1 ? parts[parts.length-1].trim() : String(name).trim();
+        const centroid = findCountryCentroid(tail, null) || findCountryCentroid(name, null);
+        if (centroid) {
+          out.push({ timestamp_ms: 0, lat: centroid.lat, lon: centroid.lon, location: name, type: 'interest_label' });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function normalizeFriendMap(obj){
+  const src = obj.instagram_friend_map || obj.nodes || [];
+  const out = [];
+  for (const it of src) {
+    const lat = (it.latitude != null ? +it.latitude : (it.lat != null ? +it.lat : null));
+    const lon = (it.longitude != null ? +it.longitude : (it.lng != null ? +it.lng : (it.lon != null ? +it.lon : null)));
+    if (!isFinite(lat) || !isFinite(lon)) continue;
+    const ts = (it.timestamp_ms != null ? +it.timestamp_ms : (it.timestamp ? (+it.timestamp * 1000) : 0));
+    const name = it.name || it.title || 'Friend map';
+    out.push({ timestamp_ms: ts, lat, lon, location: name, type: 'friend_map' });
+  }
+  return out;
+}
+
+function normalizeMediaWithLocation(obj){
+  const out = [];
+  const pushFromItem = (item) => {
+    if (!item) return;
+    const loc = item.location || {};
+    const lat = (loc.lat != null ? +loc.lat : (loc.latitude != null ? +loc.latitude : null));
+    const lon = (loc.lng != null ? +loc.lng : (loc.longitude != null ? +loc.longitude : null));
+    if (!isFinite(lat) || !isFinite(lon)) return;
+    const ts = (item.creation_timestamp ? +item.creation_timestamp * 1000 : (item.taken_at ? +item.taken_at * 1000 : 0));
+    const name = loc.name || loc.title || 'Media location';
+    out.push({ timestamp_ms: ts, lat, lon, location: name, type: 'media_location' });
+  };
+  if (Array.isArray(obj)) {
+    for (const it of obj) {
+      if (Array.isArray(it?.media)) it.media.forEach(pushFromItem);
+      else pushFromItem(it);
+    }
+  } else if (Array.isArray(obj.media)) {
+    obj.media.forEach(pushFromItem);
+  }
+  return out;
+}
+
+function normalizeTwoFactorDevices(obj){
+  const src = obj.devices_two_factor_authentication || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    const nickname = pickSmdValue(smd, 'Nickname') || '';
+    const deviceId = pickSmdValue(smd, 'Device ID') || '';
+    out.push({ nickname, deviceId });
+  }
+  return out;
+}
+
+function normalizeCameraDevices(obj){
+  const src = obj.devices_camera || [];
+  const out = [];
+  for (const it of src) {
+    const smd = it.string_map_data || {};
+    const deviceId = pickSmdValue(smd, 'Device ID') || '';
+    const sdk = pickSmdValue(smd, 'Supported SDK Versions') || '';
+    const compression = pickSmdValue(smd, 'Compression') || '';
+    const faceTracker = pickSmdValue(smd, 'Face Tracker Version') || '';
+    out.push({ deviceId, sdk, compression, faceTracker });
+  }
+  return out;
+}
+
+function normalizePossibleEmails(obj){
+  const src = obj.inferred_data_inferred_emails || [];
+  const out = [];
+  for (const it of src) {
+    const lst = it.string_list_data || [];
+    for (const s of lst) if (s && s.value) out.push(s.value);
   }
   return out;
 }
@@ -495,7 +855,8 @@ function app() {
       { id: 'words', label: 'Words' },
       { id: 'stats', label: 'Stats' },
       { id: 'engagement', label: 'Engagement' },
-      { id: 'interests', label: 'Interests' }
+  { id: 'interests', label: 'Interests' },
+  { id: 'security', label: 'Security' }
     ],
     activeTab: 'overview',
     loading: false,
@@ -503,18 +864,23 @@ function app() {
     errors: [],
     isDrag: false,
     dark: false,
-    extra: { saves: [], comments: [], topics: [] },
-    extrasAnalytics: null,
+  extra: { saves: [], comments: [], topics: [], logins: [], logouts: [], devices: [], profile: [], signup: [], lastLocation: [] },
+  extrasAnalytics: null,
+  extrasSecurity: null,
 
     // filtering
     selectedThreadKey: 'ALL',
     threadOptions: [], // { key, label }
+    searchQuery: '',
 
     // computed data
     threads: [],
     overview: { totalMessages: 0, totalConversations: 0, totalEmojis: 0, startDate: '-', endDate: '-', rangeDays: 0 },
     stats: { avgPerDay: 0, mostActiveDayLabel: '-', mostActiveHourLabel: '-', avgMsgLength: 0, medianMsgLength: 0, mostActiveConversation: '-', topOneToOne: '-', uniqueActiveDays: 0, media: { photos: 0, videos: 0, audios: 0, messagesWithMedia: 0 }, reactionsTotal: 0, topSender: '-' },
     charts: null,
+
+    // utility functions for templates
+    fmtDate: fmtDate,
 
     init() {
       // theme
@@ -528,7 +894,7 @@ function app() {
         this.buildThreadOptions();
         const a = computeAnalytics(merged);
         this.overview = a.overview; this.stats = a.stats; this.charts = a.charts; this.hasData = true;
-        this.renderChartsForTab('overview');
+  this.renderChartsForTab('overview');
       }).catch(()=>{});
     },
 
@@ -626,12 +992,13 @@ function app() {
         const { threads, extra } = await readAllJsonFiles(fileList);
         if (!threads.length) throw new Error('No valid DM JSON files found.');
         this.threads = threads;
-        this.extra = extra || { saves: [], comments: [], topics: [] };
+  this.extra = extra || { saves: [], comments: [], topics: [], logins: [], logouts: [], devices: [], profile: [], signup: [], lastLocation: [] };
         this.buildThreadOptions();
         this.selectedThreadKey = 'ALL';
         const a = computeAnalytics(threads);
         this.overview = a.overview; this.stats = a.stats; this.charts = a.charts; this.hasData = true;
         this.extrasAnalytics = computeExtrasAnalytics(this.extra);
+  this.extrasSecurity = computeSecurityAnalytics(this.extra);
         this.renderChartsForTab(this.activeTab);
       } catch (e) {
         this.errors.push(e.message || String(e));
@@ -689,6 +1056,11 @@ function app() {
       }
       if (tab === 'interests' && this.extrasAnalytics) {
         makeBarChart('chartTopicsTop', this.extrasAnalytics.topics.top.labels, this.extrasAnalytics.topics.top.values, { label: 'Your topics' });
+      }
+      if (tab === 'security' && this.extrasSecurity) {
+  makeLineChart('chartLoginTimeline', this.extrasSecurity.logins.timeline.labels, this.extrasSecurity.logins.timeline.values, { label: 'Logins/day' });
+        // Render map once per tab activation
+  renderLoginMap(this.extrasSecurity.logins.mapPoints || []);
       }
     },
   };
@@ -787,4 +1159,309 @@ function computeExtrasAnalytics(extra){
       top: { labels: topicsTop.map(([k])=>k), values: topicsTop.map(([,v])=>v) }
     }
   };
+}
+
+// ---------- Security analytics and map ----------
+// Lightweight country centroids for offline fallback plotting
+const COUNTRY_CENTROIDS = {
+  US: [37.1, -95.7], CA: [56.1, -106.3], MX: [23.6, -102.5], BR: [-10.8, -52.9], AR: [-34.6, -64.0], CL: [-35.7, -71.5], CO: [4.6, -74.1], PE: [-9.2, -75.0],
+  GB: [55.4, -3.4], IE: [53.1, -8.2], FR: [46.2, 2.2], ES: [40.5, -3.7], PT: [39.4, -8.2], IT: [41.9, 12.6], DE: [51.2, 10.4], NL: [52.1, 5.3], BE: [50.5, 4.5],
+  CH: [46.8, 8.2], AT: [47.5, 14.6], CZ: [49.8, 15.5], PL: [52.2, 19.1], SE: [60.1, 18.6], NO: [60.5, 8.5], FI: [64.0, 26.0], DK: [56.2, 10.0], RU: [61.5, 105.3], UA: [49.0, 32.0],
+  TR: [39.0, 35.2], GR: [39.1, 21.8], RO: [45.9, 25.0], HU: [47.2, 19.5], BG: [42.7, 25.5], RS: [44.0, 20.9], HR: [45.1, 15.2], SI: [46.1, 14.8], SK: [48.7, 19.7],
+  AU: [-25.3, 133.8], NZ: [-41.8, 171.8], ZA: [-30.6, 22.9], EG: [26.8, 30.8], MA: [31.8, -7.1], NG: [9.1, 8.7], KE: [0.0, 37.9], ET: [9.1, 40.5], GH: [7.9, -1.0],
+  AE: [24.3, 54.4], SA: [23.9, 45.1], IL: [31.0, 35.0], IR: [32.4, 53.7], IQ: [33.2, 43.7], JO: [31.3, 36.4], QA: [25.3, 51.2], KW: [29.3, 47.5], OM: [20.6, 56.1],
+  IN: [22.6, 79.0], PK: [30.4, 69.3], BD: [23.7, 90.4], LK: [7.9, 80.8], NP: [28.4, 84.1],
+  CN: [35.9, 104.2], HK: [22.3, 114.1], TW: [23.7, 121.0], JP: [36.2, 138.3], KR: [36.6, 127.9], VN: [14.1, 108.3], TH: [15.8, 101.0], MY: [4.2, 102.0], SG: [1.35, 103.8], ID: [-2.5, 118.0], PH: [12.9, 121.8]
+};
+const COUNTRY_ALIASES = {
+  'united states': 'US', 'usa': 'US', 'us': 'US', 'u.s.': 'US', 'u.s.a.': 'US',
+  'united kingdom': 'GB', 'uk': 'GB', 'great britain': 'GB', 'britain': 'GB', 'england': 'GB',
+  'south korea': 'KR', 'republic of korea': 'KR', 'korea, republic of': 'KR',
+  'russia': 'RU', 'russian federation': 'RU',
+  'czech republic': 'CZ', 'czechia': 'CZ', 'uae': 'AE', 'united arab emirates': 'AE', 'saudi arabia': 'SA', 'turkiye': 'TR', 'turkey': 'TR'
+};
+function findCountryCentroid(countryName, code){
+  const cc = (code && COUNTRY_CENTROIDS[code]) ? code : (countryName ? COUNTRY_ALIASES[String(countryName).toLowerCase()] : null);
+  const final = cc || (code || '').toUpperCase();
+  if (COUNTRY_CENTROIDS[final]) return { code: final, lat: COUNTRY_CENTROIDS[final][0], lon: COUNTRY_CENTROIDS[final][1] };
+  return null;
+}
+function computeSecurityAnalytics(extra){
+  const logins = extra.logins || [];
+  const logouts = extra.logouts || [];
+  const devices = extra.devices || [];
+  const profile = extra.profile || [];
+  const signup = extra.signup || [];
+  const lastLocation = extra.lastLocation || [];
+  const geoPoints = extra.geoPoints || [];
+  const twoFA = extra.twoFA || [];
+  const camera = extra.camera || [];
+  const inferredEmails = extra.inferredEmails || [];
+
+  // Login timeline per day
+  const byDay = new Map();
+  let first=null, last=null;
+  const locSet = new Set();
+  const pts = [];
+  for (const l of logins) {
+    const d = toDateOnly(l.timestamp_ms).toISOString().slice(0,10);
+    byDay.set(d, (byDay.get(d)||0)+1);
+    if (!first || l.timestamp_ms < first) first = l.timestamp_ms;
+    if (!last || l.timestamp_ms > last) last = l.timestamp_ms;
+    // count textual location if present
+    const locText = (l.location||'').trim(); if (locText) locSet.add(locText);
+    // count coordinate-based unique location if present
+    if (typeof l.lat === 'number' && typeof l.lon === 'number' && isFinite(l.lat) && isFinite(l.lon)) {
+      const key = `${(+l.lat).toFixed(3)},${(+l.lon).toFixed(3)}`;
+      locSet.add(key);
+      pts.push({ lat: l.lat, lon: l.lon, when: fmtDate(l.timestamp_ms), location: l.location||key, ip: l.ip||'', device: l.device||'', type: 'login' });
+    } else {
+      // Fallback: plot by country centroid if available
+      const c = findCountryCentroid(l.country, l.countryCode);
+      if (c) {
+        const key = `${c.code}:${c.lat.toFixed(3)},${c.lon.toFixed(3)}`;
+        locSet.add(key);
+        pts.push({ lat: c.lat, lon: c.lon, when: fmtDate(l.timestamp_ms), location: l.country || l.countryCode || c.code, ip: l.ip||'', device: l.device||'', type: 'country_fallback' });
+      }
+    }
+  }
+  
+  // Add last known locations to map
+  for (const ll of lastLocation) {
+    if (typeof ll.lat === 'number' && typeof ll.lon === 'number' && isFinite(ll.lat) && isFinite(ll.lon)) {
+      const key = `${(+ll.lat).toFixed(3)},${(+ll.lon).toFixed(3)}`;
+      locSet.add(key);
+      pts.push({ 
+        lat: ll.lat, lon: ll.lon, 
+        when: fmtDate(ll.timestamp_ms), 
+        location: ll.location || key, 
+        ip: ll.ip||'', 
+        device: ll.device||'', 
+        type: ll.precise ? 'precise_location' : 'imprecise_location' 
+      });
+    }
+  }
+
+  // Add additional geo points (locations of interest, media with location, friend map)
+  for (const gp of geoPoints) {
+    if (typeof gp.lat === 'number' && typeof gp.lon === 'number' && isFinite(gp.lat) && isFinite(gp.lon)) {
+      const key = `${(+gp.lat).toFixed(3)},${(+gp.lon).toFixed(3)}`;
+      locSet.add(key);
+      pts.push({ lat: gp.lat, lon: gp.lon, when: gp.timestamp_ms ? fmtDate(gp.timestamp_ms) : '-', location: gp.location || key, ip: '', device: '', type: gp.type || 'geo' });
+    }
+  }
+
+  const timeline = Array.from(byDay.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+  const deviceCount = new Set([...logins.map(l=>l.device), ...logouts.map(l=>l.device)].filter(Boolean)).size;
+  const recent = [...logins].sort((a,b)=>b.timestamp_ms-a.timestamp_ms).slice(0,15).map((l,i)=>({ 
+    id: i+':'+l.timestamp_ms, 
+    when: fmtDate(l.timestamp_ms), 
+    location: l.location||'', 
+    ip: l.ip||'', 
+    device: l.device||'' 
+  }));
+
+  // Profile events: include username, email, phone changes, plus privacy/status changes
+  const interesting = new Set(['username', 'email', 'phone_number', 'phone', 'name', 'bio', 'privacy', 'account_status', 'password_change']);
+  const profileEvents = profile.filter(p => interesting.has(String(p.type||'').toLowerCase())).sort((a,b)=>a.timestamp_ms-b.timestamp_ms).map((p,i)=>({ 
+    id: i+':'+p.timestamp_ms, 
+    when: fmtDate(p.timestamp_ms), 
+    type: p.type, 
+    value: p.value 
+  }));
+
+  // Device analytics
+  const userAgents = {};
+  const ips = new Set();
+  const languages = new Set();
+  for (const l of [...logins, ...logouts]) {
+    if (l.device) {
+      // Extract browser/device info from User Agent
+      const ua = l.device;
+      let deviceType = 'Unknown';
+      if (/iPhone|iPad|iOS/i.test(ua)) deviceType = 'iOS';
+      else if (/Android/i.test(ua)) deviceType = 'Android'; 
+      else if (/Instagram/i.test(ua)) deviceType = 'Instagram App';
+      else if (/Mozilla|Safari|Chrome/i.test(ua)) deviceType = 'Web Browser';
+      userAgents[deviceType] = (userAgents[deviceType] || 0) + 1;
+    }
+    if (l.ip) ips.add(l.ip);
+    if (l.language) languages.add(l.language);
+  }
+  // User-agent aggregation
+  const uaMap = new Map(); // ua -> { count, lastTs }
+  const touchUA = (ua, ts) => {
+    if (!ua) return;
+    const rec = uaMap.get(ua) || { count: 0, lastTs: 0 };
+    rec.count++;
+    if (ts && ts > rec.lastTs) rec.lastTs = ts;
+    uaMap.set(ua, rec);
+  };
+  for (const l of logins) touchUA(l.device, l.timestamp_ms);
+  for (const l of logouts) touchUA(l.device, l.timestamp_ms);
+  // Merge known devices (devices.json may not provide UA; we used 'device' to store UA)
+  for (const d of devices) {
+    if (d.device) {
+      const rec = uaMap.get(d.device) || { count: 0, lastTs: 0 };
+      if (d.last_login_ms && d.last_login_ms > rec.lastTs) rec.lastTs = d.last_login_ms;
+      uaMap.set(d.device, rec);
+    }
+  }
+
+  // UA parser -> nice labels
+  function parseDeviceUA(ua){
+    const U = String(ua||'');
+    const out = { company: 'Unknown', model: '', os: 'Unknown', app: '', browser: '', platform: 'Unknown', icon: '📱' };
+    const has = (s)=> new RegExp(s, 'i').test(U);
+    const match = (re)=>{ const m = U.match(re); return m ? m[1] : ''; };
+    // App/browser
+    if (has('Instagram')) out.app = 'Instagram';
+    if (has('Barcelona')) out.app = 'Threads';
+    if (has('Safari') && !has('Chrome')) out.browser = 'Safari';
+    if (has('Chrome|CriOS')) out.browser = 'Chrome';
+    if (has('Firefox')) out.browser = 'Firefox';
+    // Platform / OS / vendor / model
+    if (has('iPhone|iPad|iOS|iPadOS')) {
+      out.company = 'Apple';
+      out.os = has('iPad') ? 'iPadOS' : 'iOS';
+      out.platform = has('iPad') ? 'Tablet' : 'Mobile';
+      out.icon = '🍎';
+      const model = match(/\((iPhone[^;\)]*|iPad[^;\)]*)/i) || match(/\(([^;\)]*); iOS /i);
+      out.model = model || (has('iPhone') ? 'iPhone' : has('iPad') ? 'iPad' : 'iOS Device');
+    } else if (has('Android')) {
+      out.company = has('Pixel|Google') ? 'Google' : 'Android';
+      out.os = 'Android';
+      out.platform = 'Mobile';
+      out.icon = '🤖';
+      const model = match(/Android \([^;]*;[^;]*;\s*([^;\)]*)/i);
+      out.model = model || 'Android Device';
+    } else if (has('Macintosh|Mac OS X|Mac OS')) {
+      out.company = 'Apple';
+      out.os = 'macOS';
+      out.platform = 'Desktop';
+      out.icon = '💻';
+      out.model = 'Mac';
+    } else if (has('Windows')) {
+      out.company = 'Microsoft';
+      out.os = 'Windows';
+      out.platform = 'Desktop';
+      out.icon = '🖥️';
+      out.model = 'PC';
+    } else if (has('Linux') && has('X11')) {
+      out.company = 'Linux';
+      out.os = 'Linux';
+      out.platform = 'Desktop';
+      out.icon = '🖥️';
+      out.model = 'Linux';
+    } else if (has('Mozilla/')) {
+      out.company = 'Web';
+      out.os = 'Web';
+      out.platform = 'Web';
+      out.icon = '🌐';
+      out.model = 'Browser';
+    }
+    // App label preference
+    const subtitle = out.app ? `${out.app}${out.browser? ' · '+out.browser: ''}` : (out.browser || '');
+    const title = `${out.company} ${out.model}`.trim();
+    const chips = [out.os, out.platform].filter(Boolean);
+    return { title, subtitle, chips, icon: out.icon };
+  }
+
+  const deviceSummary = [...uaMap.entries()].map(([ua, meta])=>{
+    const parsed = parseDeviceUA(ua);
+    return { id: ua, ua, title: parsed.title, subtitle: parsed.subtitle, chips: parsed.chips, icon: parsed.icon, lastTs: meta.lastTs || 0, lastSeen: meta.lastTs ? fmtDate(meta.lastTs) : '-', count: meta.count };
+  }).sort((a,b)=>{
+    if (!!b.lastTs !== !!a.lastTs) return (b.lastTs?1:0) - (a.lastTs?1:0);
+    if (b.lastTs !== a.lastTs) return b.lastTs - a.lastTs;
+    return b.count - a.count;
+  });
+
+  // Known devices list (simple list by last login)
+  const knownDevices = devices.map(d => ({ device: d.device, when: d.last_login_ms ? fmtDate(d.last_login_ms) : '-' }))
+    .sort((a,b)=> (a.when==='-'?1:0) - (b.when==='-'?1:0));
+
+  // Logout data
+  const recentLogouts = [...logouts].sort((a,b)=>b.timestamp_ms-a.timestamp_ms).slice(0,10).map((l,i)=>({ 
+    id: i+':'+l.timestamp_ms, 
+    when: fmtDate(l.timestamp_ms), 
+    ip: l.ip||'', 
+    device: l.device||'',
+    cookie: l.cookie||'' 
+  }));
+
+  // Signup info
+  const signupInfo = signup.length ? signup[0] : null; // Usually just one signup event
+
+  return {
+    logins: {
+      total: logins.length,
+      first: first ? fmtDate(first) : null,
+      last: last ? fmtDate(last) : null,
+  uniqueLocations: locSet.size,
+      deviceCount,
+      timeline: { labels: timeline.map(([d])=>d), values: timeline.map(([,v])=>v) },
+      recent,
+      mapPoints: pts
+    },
+    logouts: {
+      total: logouts.length,
+      recent: recentLogouts
+    },
+    devices: {
+      types: Object.entries(userAgents).sort((a,b)=>b[1]-a[1]),
+      uniqueIPs: ips.size,
+  languages: Array.from(languages),
+  known: knownDevices,
+  twoFA,
+  camera,
+  inferredEmails,
+  summary: deviceSummary,
+  totalUnique: deviceSummary.length,
+  twoFACount: twoFA.length
+    },
+    profile: { events: profileEvents },
+    signup: signupInfo,
+  locations: lastLocation.length + geoPoints.length
+  };
+}
+
+let loginMapInstance = null;
+let loginMapLayer = null;
+function renderLoginMap(points){
+  const el = document.getElementById('mapLogins');
+  if (!el) return;
+  // init map
+  if (!loginMapInstance) {
+    loginMapInstance = L.map('mapLogins');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(loginMapInstance);
+    loginMapLayer = L.layerGroup().addTo(loginMapInstance);
+  }
+  // clear existing markers
+  if (loginMapLayer) loginMapLayer.clearLayers();
+  if (!points.length) {
+    loginMapInstance.setView([20,0], 2);
+    setTimeout(()=> loginMapInstance.invalidateSize(), 0);
+    return;
+  }
+  const grp = L.featureGroup();
+  for (const p of points) {
+    let color = 'blue';
+    let icon = '🔐';
+    if (p.type === 'precise_location') { color = 'red'; icon = '📍'; }
+    else if (p.type === 'imprecise_location') { color = 'orange'; icon = '📍'; }
+    
+    const customIcon = L.divIcon({
+      html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; font-size: 12px;">${icon}</div>`,
+      iconSize: [20, 20],
+      className: 'custom-div-icon'
+    });
+    
+    const popup = `<strong>${p.when}</strong><br>${p.location||''}<br>${p.ip||''}<br><small>${p.device||''}</small>`;
+    const m = L.marker([p.lat, p.lon], {icon: customIcon}).bindPopup(popup);
+    grp.addLayer(m);
+  }
+  if (loginMapLayer) loginMapLayer.addLayer(grp);
+  loginMapInstance.fitBounds(grp.getBounds().pad(0.2));
+  // ensure proper sizing after tab becomes visible
+  setTimeout(()=> loginMapInstance.invalidateSize(), 0);
 }

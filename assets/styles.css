@@ -1,0 +1,8 @@
+[x-cloak] { display: none !important; }
+.results-scroll { max-height: calc(100vh - 260px); overflow: auto; }
+.chart-wrap { height: 280px; }
+.truncate-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-clamp: 2; }
+#mapLogins { height: 320px; border-radius: 0.75rem; border: 1px solid #e5e7eb; }
+.dark #mapLogins { border-color: #374151; }
+.leaflet-container { font-family: inherit; }
+.custom-div-icon { background: transparent !important; border: none !important; }
