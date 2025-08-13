@@ -1180,8 +1180,8 @@ function computeExtrasAnalytics(extra){
   const topOwners = Array.from(cByOwner.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const topCommentEmojis = Array.from(cEmoji.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
-  // After dedupe, each topic occurs once; keep order of appearance (capped at 20 for display)
-  const topicsTop = uniqueTopics.slice(0,20).map(t => [t, 1]);
+  // After dedupe, each topic occurs once; keep full order of appearance (no cap)
+  const topicsTop = uniqueTopics.map(t => [t, 1]);
 
   return {
     saves: {
