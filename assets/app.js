@@ -900,44 +900,87 @@ function app() {
   this.renderChartsForTab('overview');
       }).catch(()=>{});
     },
-    geolocateIPs(){
+    async geolocateIPs(){
       if (!this.extrasSecurity || this.ipGeoWorking) return;
-      const sec = this.extrasSecurity;
-      // Collect login + logout records lacking coordinates
+      // Gather records needing geo
       const need = [];
-      for (const l of (this.extra.logins||[])) if (!isFinite(l.lat) || !isFinite(l.lon)) need.push({ type:'login', rec:l });
-      for (const l of (this.extra.logouts||[])) if (!l._geoAdded && (!isFinite(l.lat) || !isFinite(l.lon))) need.push({ type:'logout', rec:l });
+      for (const l of (this.extra.logins||[])) if (!(isFinite(l.lat)&&isFinite(l.lon)) && l.ip) need.push({ type:'login', rec:l });
+      for (const l of (this.extra.logouts||[])) if (!(isFinite(l.lat)&&isFinite(l.lon)) && l.ip) need.push({ type:'logout', rec:l });
       if (!need.length){ this.ipGeoSummary = 'No IPs to geolocate'; return; }
-      this.ipGeoWorking = true;
-      // Simple local IP->country/region heuristic (no external API) using prefixes
-      const ipBlocks = [
-        { prefix:'86.25.', lat:51.5, lon:-0.1, label:'UK (approx)' },
-        { prefix:'92.40.', lat:51.5, lon:-0.1, label:'UK (approx)' },
-        { prefix:'134.219.', lat:51.5, lon:-0.1, label:'UK (approx)' },
-        { prefix:'81.100.', lat:51.5, lon:-0.1, label:'UK (approx)' },
-        { prefix:'82.1.', lat:51.5, lon:-0.1, label:'UK (approx)' },
-        { prefix:'86.29.', lat:51.5, lon:-0.1, label:'UK (approx)' },
-        { prefix:'2a00:23c7', lat:51.5, lon:-0.1, label:'UK (approx, v6)' }
-      ];
-  let added = 0, addLogin = 0, addLogout = 0;
-  for (const {rec,type} of need){
-        const ip = rec.ip || '';
-        if (!ip) continue;
-        const block = ipBlocks.find(b=> ip.startsWith(b.prefix));
-        if (block){
-          rec.lat = block.lat + (Math.random()-0.5)*0.4; // jitter
-          rec.lon = block.lon + (Math.random()-0.5)*0.4;
-          rec.location = rec.location || block.label;
-          rec._ipGeo = true;
-          added++;
-          if (type==='login') addLogin++; else if (type==='logout') addLogout++;
-          // Add to map points immediately
-        }
+      this.ipGeoWorking = true; this.ipGeoSummary = 'Querying ip-api.com…';
+      // Build unique IP list (skip private/reserved)
+      const isPrivate = ip => /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|::1|fc00:|fd00:)/.test(ip);
+      const uniq = [];
+      const mapIP = new Map(); // ip -> records
+      for (const n of need){
+        const ip = n.rec.ip.trim();
+        if (!ip || isPrivate(ip)) continue;
+        if (!mapIP.has(ip)) { mapIP.set(ip, []); uniq.push(ip); }
+        mapIP.get(ip).push(n);
       }
-      // Recompute security analytics to rebuild map points including new coords
+      if (!uniq.length){ this.ipGeoSummary = 'Only private/reserved IPs present'; this.ipGeoWorking=false; return; }
+      // Batch query ip-api (supports up to 100 per batch). NOTE: Free endpoint is HTTP only; on HTTPS pages this may be blocked (mixed content)
+      const batches = [];
+      for (let i=0;i<uniq.length;i+=100) batches.push(uniq.slice(i,i+100));
+      let apiSuccess=0, apiFail=0;
+      for (let bi=0; bi<batches.length; bi++){
+        const batch = batches[bi];
+        try {
+          const resp = await fetch('http://ip-api.com/batch?fields=status,message,query,lat,lon,country,city,regionName,timezone,isp', { method:'POST', body: JSON.stringify(batch) });
+          // If blocked due to mixed content (HTTPS site) this will throw or be blocked by browser before fetch.
+          if (!resp.ok) throw new Error('HTTP '+resp.status);
+          const data = await resp.json();
+          for (const row of data){
+            if (!row) continue;
+            if (row.status === 'success' && typeof row.lat==='number' && typeof row.lon==='number') {
+              apiSuccess++;
+              const recs = mapIP.get(row.query) || [];
+              for (const {rec,type} of recs){
+                rec.lat = row.lat; rec.lon = row.lon;
+                rec.location = rec.location || row.city || row.regionName || row.country || 'IP Location';
+                rec._ipGeo = true; rec._ipSrc = 'ip-api';
+              }
+            } else {
+              apiFail++;
+            }
+          }
+        } catch (e){
+          apiFail += batch.length;
+          // Abort further batches if mixed content likely
+          if (window.location.protocol === 'https:') { break; }
+        }
+        // Rate limit: ip-api free allows 45 req/min. Batches count as 1 each. Short delay for politeness.
+        if (batches.length > 1 && bi < batches.length-1) await new Promise(r=>setTimeout(r, 1500));
+      }
+      // Fallback heuristic for any unresolved IPs (if we had no successes & on https)
+      if (apiSuccess === 0) {
+        const ipBlocks = [
+          { prefix:'86.25.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+          { prefix:'92.40.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+          { prefix:'134.219.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+          { prefix:'81.100.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+          { prefix:'82.1.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+          { prefix:'86.29.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+          { prefix:'2a00:23c7', lat:51.5, lon:-0.1, label:'UK (approx, v6)' }
+        ];
+        let heur=0;
+        for (const ip of uniq){
+          const block = ipBlocks.find(b=> ip.startsWith(b.prefix));
+          if (!block) continue;
+          for (const {rec} of mapIP.get(ip)||[]){
+            rec.lat = block.lat + (Math.random()-0.5)*0.4;
+            rec.lon = block.lon + (Math.random()-0.5)*0.4;
+            rec.location = rec.location || block.label;
+            rec._ipGeo = true; rec._ipSrc='heuristic'; heur++;
+          }
+        }
+        if (heur>0) this.ipGeoSummary = `ip-api blocked on HTTPS; heuristic filled ${heur}`;
+      }
+      // Recompute
       this.extrasSecurity = computeSecurityAnalytics(this.extra);
       this.renderChartsForTab('security');
-  this.ipGeoSummary = added ? `Geolocated ${added} events (${addLogin} login, ${addLogout} logout)` : 'No matches for local IP heuristics';
+      if (apiSuccess>0) this.ipGeoSummary = `ip-api: ${apiSuccess} located, ${apiFail} failed` + (window.location.protocol==='https:'? ' (free API uses http; some browsers may block)': '');
+      else if (!this.ipGeoSummary) this.ipGeoSummary = 'No IPs resolved';
       this.ipGeoWorking = false;
     },
 
