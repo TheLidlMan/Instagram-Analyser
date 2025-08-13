@@ -1085,6 +1085,14 @@ function computeExtrasAnalytics(extra){
   const saves = extra.saves || [];
   const comments = extra.comments || [];
   const topics = extra.topics || [];
+  // Deduplicate topics case-insensitively while preserving first encountered original form
+  const topicsUniqueMap = new Map();
+  for (const t of topics) {
+    if (!t) continue;
+    const key = t.trim().toLowerCase();
+    if (!topicsUniqueMap.has(key)) topicsUniqueMap.set(key, t.trim());
+  }
+  const uniqueTopics = Array.from(topicsUniqueMap.values());
 
   const byDay = new Map();
   let firstSave = null, lastSave = null;
@@ -1130,9 +1138,8 @@ function computeExtrasAnalytics(extra){
   const topOwners = Array.from(cByOwner.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const topCommentEmojis = Array.from(cEmoji.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
-  const topicsCount = new Map();
-  for (const t of topics) topicsCount.set(t, (topicsCount.get(t)||0)+1);
-  const topicsTop = Array.from(topicsCount.entries()).sort((a,b)=>b[1]-a[1]).slice(0,20);
+  // After dedupe, each topic occurs once; keep order of appearance (capped at 20 for display)
+  const topicsTop = uniqueTopics.slice(0,20).map(t => [t, 1]);
 
   return {
     saves: {
@@ -1155,7 +1162,7 @@ function computeExtrasAnalytics(extra){
       topEmojis: { labels: topCommentEmojis.map(([k])=>k), values: topCommentEmojis.map(([,v])=>v) },
     },
     topics: {
-      count: topics.length,
+      count: uniqueTopics.length,
       top: { labels: topicsTop.map(([k])=>k), values: topicsTop.map(([,v])=>v) }
     }
   };
