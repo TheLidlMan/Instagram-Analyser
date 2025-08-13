@@ -867,6 +867,9 @@ function app() {
   extra: { saves: [], comments: [], topics: [], logins: [], logouts: [], devices: [], profile: [], signup: [], lastLocation: [] },
   extrasAnalytics: null,
   extrasSecurity: null,
+  // IP geolocation state
+  ipGeoWorking: false,
+  ipGeoSummary: '',
 
     // filtering
     selectedThreadKey: 'ALL',
@@ -896,6 +899,45 @@ function app() {
         this.overview = a.overview; this.stats = a.stats; this.charts = a.charts; this.hasData = true;
   this.renderChartsForTab('overview');
       }).catch(()=>{});
+    },
+    geolocateIPs(){
+      if (!this.extrasSecurity || this.ipGeoWorking) return;
+      const sec = this.extrasSecurity;
+      // Collect login + logout records lacking coordinates
+      const need = [];
+      for (const l of (this.extra.logins||[])) if (!isFinite(l.lat) || !isFinite(l.lon)) need.push({ type:'login', rec:l });
+      for (const l of (this.extra.logouts||[])) if (!l._geoAdded && (!isFinite(l.lat) || !isFinite(l.lon))) need.push({ type:'logout', rec:l });
+      if (!need.length){ this.ipGeoSummary = 'No IPs to geolocate'; return; }
+      this.ipGeoWorking = true;
+      // Simple local IP->country/region heuristic (no external API) using prefixes
+      const ipBlocks = [
+        { prefix:'86.25.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+        { prefix:'92.40.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+        { prefix:'134.219.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+        { prefix:'81.100.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+        { prefix:'82.1.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+        { prefix:'86.29.', lat:51.5, lon:-0.1, label:'UK (approx)' },
+        { prefix:'2a00:23c7', lat:51.5, lon:-0.1, label:'UK (approx, v6)' }
+      ];
+      let added = 0;
+      for (const {rec,type} of need){
+        const ip = rec.ip || '';
+        if (!ip) continue;
+        const block = ipBlocks.find(b=> ip.startsWith(b.prefix));
+        if (block){
+          rec.lat = block.lat + (Math.random()-0.5)*0.4; // jitter
+          rec.lon = block.lon + (Math.random()-0.5)*0.4;
+          rec.location = rec.location || block.label;
+          rec._ipGeo = true;
+          added++;
+          // Add to map points immediately
+        }
+      }
+      // Recompute security analytics to rebuild map points including new coords
+      this.extrasSecurity = computeSecurityAnalytics(this.extra);
+      this.renderChartsForTab('security');
+      this.ipGeoSummary = added ? `Geolocated ${added} IP login/logout events` : 'No matches for local IP heuristics';
+      this.ipGeoWorking = false;
     },
 
     getInitialTheme(){

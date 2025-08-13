@@ -493,9 +493,13 @@
             </div>
             <div class="p-4 rounded-xl bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700">
               <div class="text-sm mb-2 text-gray-600 dark:text-gray-300">Login locations map</div>
+              <div class="flex items-center gap-2 mb-2">
+                <button @click="geolocateIPs()" class="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed" :disabled="ipGeoWorking" x-text="ipGeoWorking ? 'Geolocating…' : 'Geolocate IPs'"></button>
+                <div class="text-[11px] text-gray-500 dark:text-gray-400" x-show="ipGeoSummary" x-text="ipGeoSummary"></div>
+              </div>
               <div id="mapLogins" class="w-full"></div>
               <div class="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                🔐 Logins · 📍 Location data · External tiles (OpenStreetMap)
+                🔐 Logins · 📍 Location data · 🌐 IP (approx) · External tiles (OpenStreetMap)
               </div>
             </div>
           </div>
