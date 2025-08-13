@@ -919,8 +919,8 @@ function app() {
         { prefix:'86.29.', lat:51.5, lon:-0.1, label:'UK (approx)' },
         { prefix:'2a00:23c7', lat:51.5, lon:-0.1, label:'UK (approx, v6)' }
       ];
-      let added = 0;
-      for (const {rec,type} of need){
+  let added = 0, addLogin = 0, addLogout = 0;
+  for (const {rec,type} of need){
         const ip = rec.ip || '';
         if (!ip) continue;
         const block = ipBlocks.find(b=> ip.startsWith(b.prefix));
@@ -930,13 +930,14 @@ function app() {
           rec.location = rec.location || block.label;
           rec._ipGeo = true;
           added++;
+          if (type==='login') addLogin++; else if (type==='logout') addLogout++;
           // Add to map points immediately
         }
       }
       // Recompute security analytics to rebuild map points including new coords
       this.extrasSecurity = computeSecurityAnalytics(this.extra);
       this.renderChartsForTab('security');
-      this.ipGeoSummary = added ? `Geolocated ${added} IP login/logout events` : 'No matches for local IP heuristics';
+  this.ipGeoSummary = added ? `Geolocated ${added} events (${addLogin} login, ${addLogout} logout)` : 'No matches for local IP heuristics';
       this.ipGeoWorking = false;
     },
 
@@ -1274,6 +1275,14 @@ function computeSecurityAnalytics(extra){
       }
     }
   }
+  // Add logout events with coordinates (from IP geolocation heuristic)
+  for (const lo of logouts) {
+    if (typeof lo.lat === 'number' && typeof lo.lon === 'number' && isFinite(lo.lat) && isFinite(lo.lon)) {
+      const key = `${(+lo.lat).toFixed(3)},${(+lo.lon).toFixed(3)}`;
+      locSet.add(key);
+      pts.push({ lat: lo.lat, lon: lo.lon, when: fmtDate(lo.timestamp_ms||0), location: lo.location||key, ip: lo.ip||'', device: lo.device||'', type: 'logout_ip' });
+    }
+  }
   
   // Add last known locations to map
   for (const ll of lastLocation) {
@@ -1496,8 +1505,9 @@ function renderLoginMap(points){
   for (const p of points) {
     let color = 'blue';
     let icon = '🔐';
-    if (p.type === 'precise_location') { color = 'red'; icon = '📍'; }
-    else if (p.type === 'imprecise_location') { color = 'orange'; icon = '📍'; }
+  if (p.type === 'precise_location') { color = 'red'; icon = '📍'; }
+  else if (p.type === 'imprecise_location') { color = 'orange'; icon = '📍'; }
+  else if (p.type === 'logout_ip') { color = 'purple'; icon = '🚪'; }
     
     const customIcon = L.divIcon({
       html: `<div style="background-color: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; font-size: 12px;">${icon}</div>`,
